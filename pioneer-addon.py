@@ -77,8 +77,6 @@ class ExportLuaBinaries(Operator, ExportHelper):
             else:
                 pioneers = objects
 
-            fps = scene.render.fps
-
             f = open(self.filepath, 'w')
             for pioneer in pioneers:
                 prev_x, prev_y, prev_z = None, None, None
@@ -194,8 +192,15 @@ class TOPBAR_MT_geoscan_menu(bpy.types.Menu):
     def draw(self, context):
         layout = self.layout
         layout.menu("TOPBAR_MT_custom_sub_menu")
-        layout.operator(ExportLuaBinaries.bl_idname, text=ExportLuaBinaries.bl_label)
-        layout.operator(CheckForLimits.bl_idname, text=CheckForLimits.bl_label)
+        col = layout.column()
+        row = col.row()
+
+        _export_lua = row.row()
+        _export_lua.enabled = export_allowed
+        _export_lua.operator(ExportLuaBinaries.bl_idname, text=ExportLuaBinaries.bl_label)
+
+        _check_limits = col.row()
+        _check_limits.operator(CheckForLimits.bl_idname, text=CheckForLimits.bl_label)
 
     def menu_draw(self, context):
         self.layout.menu("TOPBAR_MT_geoscan_menu")
@@ -207,6 +212,12 @@ classes.append(TOPBAR_MT_geoscan_menu)
 classes.append(ExportLuaBinaries)
 classes.append(ConfigurePanel)
 classes.append(CheckForLimits)
+
+
+"""
+https://docs.blender.org/api/current/bpy.app.handlers.html
+docs about callback function to prevent export after changes
+"""
 
 
 def register():
