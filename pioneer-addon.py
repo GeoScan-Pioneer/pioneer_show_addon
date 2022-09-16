@@ -12,10 +12,12 @@ bl_info = {
     "version": (0, 2, 0),
     "blender": (2, 80, 0),
     "warning": "",
-    "category": "Object"
+    "category": "GeoScan"
 }
 
 export_allowed = False
+
+
 # class TOPBAR_MT_custom_sub_menu(bpy.types.Menu):
 #     bl_label = "Sub Menu"
 #
@@ -74,9 +76,9 @@ class ExportLuaBinaries(Operator, ExportHelper):
                         pioneers.append(pioneers_obj)
             else:
                 pioneers = objects
-    
+
             fps = scene.render.fps
-    
+
             f = open(self.filepath, 'w')
             for pioneer in pioneers:
                 prev_x, prev_y, prev_z = None, None, None
@@ -130,13 +132,46 @@ class CheckForLimits(Operator):
         for (prop_name, _) in CONFIG_PROPS:
             exec("params.update({prop_name: context.scene." + prop_name + "})")
         speed_exeeded = False
+        frame_speed_exeeded = None
+        speed_exeeded_drone = None
         distance_underestimated = False
+        frame_low_distance = None
+        low_distance_drones = [None, None]
+
+        scene = context.scene
+        objects = context.visible_objects
+        pioneers = []
+        if params["using_name_filter"]:
+            for pioneers_obj in objects:
+                if params["drones_name"].lower() in pioneers_obj.name.lower():
+                    pioneers.append(pioneers_obj)
+        else:
+            pioneers = objects
+
+        for pioneer in pioneers:
+            prev_x, prev_y, prev_z = None, None, None
+            if speed_exeeded or distance_underestimated:
+                break
+            for frame in range(scene.frame_start, scene.frame_end + 1):
+                scene.frame_set(frame)
+                x, y, z = pioneer.matrix_world.to_translation()
+                if prev_x is not None and prev_y is not None and prev_z is not None:
+                    speed = self.get_speed((x, y, z), (prev_x, prev_y, prev_z))
+                    if speed > params["speed_exceed_value"]:
+                        speed_exeeded = True
+                        frame_speed_exeeded = frame
+                        speed_exeeded_drone = pioneer.name
+                        break
+                prev_x, prev_y, prev_z = x, y, z
+
         if not speed_exeeded and not distance_underestimated:
             export_allowed = True
             self.report({"INFO"}, "Check is success")
         else:
+            export_allowed = False
             if speed_exeeded:
-                self.report({"ERROR"}, "Speed exceeded")
+                self.report({"ERROR"}, "Speed exceeded on frame %d on drone %s" % (frame_speed_exeeded,
+                                                                                   speed_exeeded_drone))
             else:
                 self.report({"ERROR"}, "Distance less than minimums")
         return {"FINISHED"}
