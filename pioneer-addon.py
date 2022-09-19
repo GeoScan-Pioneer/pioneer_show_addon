@@ -63,31 +63,27 @@ class ExportLuaBinaries(Operator, ExportHelper):
     )
 
     def execute(self, context):
-        if bpy.context.scene.export_allowed:
-            scene = context.scene
-            objects = context.visible_objects
-            pioneers = []
-            if self.using_name_filter:
-                for pioneers_obj in objects:
-                    if self.drones_name.lower() in pioneers_obj.name.lower():
-                        pioneers.append(pioneers_obj)
-            else:
-                pioneers = objects
-
-            f = open(self.filepath, 'w')
-            for pioneer in pioneers:
-                prev_x, prev_y, prev_z = None, None, None
-                for frame in range(scene.frame_start, scene.frame_end + 1):
-                    scene.frame_set(frame)
-                    x, y, z = pioneer.matrix_world.to_translation()
-                    rot_z = pioneer.matrix_world.to_euler('XYZ')[2]
-                    f.write("%.2f %.2f %.2f\n" % (x, y, z))
-            f.close()
-            self.report({"INFO"}, "GeoScan show is better than urs")
-            return {"FINISHED"}
+        scene = context.scene
+        objects = context.visible_objects
+        pioneers = []
+        if self.using_name_filter:
+            for pioneers_obj in objects:
+                if self.drones_name.lower() in pioneers_obj.name.lower():
+                    pioneers.append(pioneers_obj)
         else:
-            self.report({"ERROR"}, "You didn't check limits exceeding. Launch it first")
-            return {"FINISHED"}
+            pioneers = objects
+
+        f = open(self.filepath, 'w')
+        for pioneer in pioneers:
+            prev_x, prev_y, prev_z = None, None, None
+            for frame in range(scene.frame_start, scene.frame_end + 1):
+                scene.frame_set(frame)
+                x, y, z = pioneer.matrix_world.to_translation()
+                rot_z = pioneer.matrix_world.to_euler('XYZ')[2]
+                f.write("%.2f %.2f %.2f\n" % (x, y, z))
+        f.close()
+        self.report({"INFO"}, "GeoScan show is better than urs")
+        return {"FINISHED"}
 
 
 CONFIG_PROPS = [
