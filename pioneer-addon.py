@@ -15,8 +15,6 @@ bl_info = {
     "category": "GeoScan"
 }
 
-export_allowed = False
-
 
 # class TOPBAR_MT_custom_sub_menu(bpy.types.Menu):
 #     bl_label = "Sub Menu"
@@ -26,7 +24,7 @@ export_allowed = False
 #         layout.operator("mesh.primitive_cube_add")
 
 class ExportLuaBinaries(Operator, ExportHelper):
-    bl_idname = "wm.export_lua_binaries"
+    bl_idname = "show.export_lua_binaries"
     bl_label = "Export LUA binaries for drones"
     filename_ext = ''
 
@@ -65,8 +63,7 @@ class ExportLuaBinaries(Operator, ExportHelper):
     )
 
     def execute(self, context):
-        global export_allowed
-        if export_allowed:
+        if bpy.context.scene.export_allowed:
             scene = context.scene
             objects = context.visible_objects
             pioneers = []
@@ -103,6 +100,9 @@ CONFIG_PROPS = [
     ('speed_exceed_value', FloatProperty(name='Limit of  speed (m/s)',
                                          default=1.5)),
 ]
+SYSTEM_PROPS = [
+    ('export_allowed', BoolProperty(default=False)),
+]
 
 
 class ConfigurePanel(Panel):
@@ -117,6 +117,9 @@ class ConfigurePanel(Panel):
         for (prop_name, _) in CONFIG_PROPS:
             row = col.row()
             row.prop(context.scene, prop_name)
+        for (prop_name, _) in SYSTEM_PROPS:
+            row = col.row()
+            row.prop(context.scene, prop_name)
         col.operator(CheckForLimits.bl_idname, text=CheckForLimits.bl_label)
 
 
@@ -125,7 +128,6 @@ class CheckForLimits(Operator):
     bl_label = "Check if is animation correct"
 
     def execute(self, context):
-        global export_allowed
         params = {}
         for (prop_name, _) in CONFIG_PROPS:
             exec("params.update({prop_name: context.scene." + prop_name + "})")
@@ -163,10 +165,10 @@ class CheckForLimits(Operator):
                 prev_x, prev_y, prev_z = x, y, z
 
         if not speed_exeeded and not distance_underestimated:
-            export_allowed = True
+            bpy.context.scene.export_allowed = True
             self.report({"INFO"}, "Check is success")
         else:
-            export_allowed = False
+            bpy.context.scene.export_allowed = False
             if speed_exeeded:
                 self.report({"ERROR"}, "Speed exceeded on frame %d on drone %s" % (frame_speed_exeeded,
                                                                                    speed_exeeded_drone))
@@ -196,7 +198,7 @@ class TOPBAR_MT_geoscan_menu(bpy.types.Menu):
         row = col.row()
 
         _export_lua = row.row()
-        _export_lua.enabled = export_allowed
+        _export_lua.enabled = bpy.context.scene.export_allowed
         _export_lua.operator(ExportLuaBinaries.bl_idname, text=ExportLuaBinaries.bl_label)
 
         _check_limits = col.row()
@@ -214,26 +216,30 @@ classes.append(ConfigurePanel)
 classes.append(CheckForLimits)
 
 
-"""
-https://docs.blender.org/api/current/bpy.app.handlers.html
-docs about callback function to prevent export after changes
-"""
+def change_handler(scene):
+    bpy.context.scene.export_allowed = False
 
 
 def register():
-    global export_allowed
-    export_allowed = False
     for (prop_name, prop_value) in CONFIG_PROPS:
         setattr(bpy.types.Scene, prop_name, prop_value)
 
+    for (prop_name, prop_value) in SYSTEM_PROPS:
+        setattr(bpy.types.Scene, prop_name, prop_value)
     for cls in classes:
         bpy.utils.register_class(cls)
     bpy.types.TOPBAR_MT_editor_menus.append(TOPBAR_MT_geoscan_menu.menu_draw)
+    bpy.app.handlers.depsgraph_update_pre.append(change_handler)
 
 
 def unregister():
+    bpy.context.scene.export_allowed = False
+    [bpy.app.handlers.depsgraph_update_pre.remove(h) for h in pre_handlers if h.__name__ == "change_handler"]
     bpy.types.TOPBAR_MT_editor_menus.remove(TOPBAR_MT_geoscan_menu.menu_draw)
     for (prop_name, _) in CONFIG_PROPS:
+        delattr(bpy.types.Scene, prop_name)
+
+    for (prop_name, _) in SYSTEM_PROPS:
         delattr(bpy.types.Scene, prop_name)
 
     for cls in classes:
