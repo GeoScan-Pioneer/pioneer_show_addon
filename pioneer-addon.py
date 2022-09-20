@@ -83,7 +83,7 @@ def write_to_bin(droneNum, coords_array, colors_array, filepath):
                 f.write(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00')
         # Write colors
         for color in colors_array:
-            f.write(struct.pack('<BBB', color[0], color[1], color[2]))
+            f.write(struct.pack('<BBB', int(color[0] * 255), int(color[1] * 255), int(color[2] * 255)))
 
 
 # class TOPBAR_MT_custom_sub_menu(bpy.types.Menu):
