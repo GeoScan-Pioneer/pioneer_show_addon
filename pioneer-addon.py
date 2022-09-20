@@ -5,6 +5,7 @@ from bpy.props import StringProperty, BoolProperty, FloatProperty, IntProperty
 
 import os
 import math
+import struct
 
 bl_info = {
     "name": "pioneer-show",
@@ -14,6 +15,75 @@ bl_info = {
     "warning": "",
     "category": "GeoScan"
 }
+
+CONFIG_PROPS = [
+    ('using_name_filter', BoolProperty(name='Use namefilter for drones',
+                                       default=True)),
+    ('drones_name', StringProperty(name='Name',
+                                   default="Pioneer")),
+    ('minimum_drone_distance', FloatProperty(name='Minimal distance (m)',
+                                             default=3.0)),
+    ('speed_exceed_value', FloatProperty(name='Limit of  speed (m/s)',
+                                         default=1.5)),
+]
+SYSTEM_PROPS = [
+    ('export_allowed', BoolProperty(default=False)),
+    ('positionFreq', IntProperty(default=2)),
+    ('colorFreq', IntProperty(default=5)),
+]
+
+
+def write_to_bin(droneNum, coords_array, colors_array, filepath):
+    headerFormat = '<BBBBBBHHfffff'
+    size = struct.calcsize(headerFormat)
+    meta_data = {
+        # if -1 == should be calculated
+        "Version": 1,
+        "AnimationId": 0,
+        "FreqPositions": bpy.context.scene.positionFreq,
+        "FreqColors": bpy.context.scene.colorFreq,
+        "FormatPositions": struct.calcsize('f'),
+        "FormatColors": struct.calcsize('B'),
+        "NumberPositions": len(coords_array),
+        "NumberColors": len(colors_array),
+        "TimeStart": -1,
+        "TimeEnd": -1,
+        "LatOrigin": 0,
+        "LonOrigin": 0,
+        "AltOrigin": 0,  # not used == 0
+    }
+    outBinPath = ''.join([filepath, '_', str(droneNum), '.bin'])
+    coords_size = len(coords_array)
+    with open(outBinPath, "wb") as f:
+        # Control sequence
+        f.write(b'\xaa\xbb\xcc\xdd')
+        f.write(struct.pack(headerFormat, meta_data['Version'],
+                            meta_data['AnimationId'],
+                            meta_data['FreqPositions'],
+                            meta_data['FreqColors'],
+                            meta_data['FormatPositions'],
+                            meta_data['FormatColors'],
+                            meta_data['NumberPositions'],
+                            meta_data['NumberColors'],
+                            meta_data['TimeStart'],
+                            meta_data['TimeEnd'],
+                            meta_data['LatOrigin'],
+                            meta_data['LonOrigin'],
+                            meta_data['AltOrigin']))
+        # Points data starts at offset of 100 bytes
+        for i in range(size + 4, 100):
+            f.write(b'\x00')
+        # Write points
+        for point in coords_array:
+            f.write(struct.pack('<fff', point[0], point[1], point[2]))
+
+        # Colors data starts at offset of 21700 bytes
+        if coords_size < 1800:
+            for _ in range(coords_size, 1800):
+                f.write(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00')
+        # Write colors
+        for color in colors_array:
+            f.write(struct.pack('<BBB', color[0], color[1], color[2]))
 
 
 # class TOPBAR_MT_custom_sub_menu(bpy.types.Menu):
@@ -30,7 +100,7 @@ class ExportLuaBinaries(Operator, ExportHelper):
 
     using_name_filter: BoolProperty(
         name="Filter objects by name",
-        default=True,
+        default=True
     )
 
     drones_name: StringProperty(
@@ -43,14 +113,14 @@ class ExportLuaBinaries(Operator, ExportHelper):
         name="Speed limit",
         description="Limit of drone movement speed (m/s)",
         unit='VELOCITY',
-        default=3,
+        default=5,
         min=0,
     )
     minimum_drone_distance: FloatProperty(
         name="Distance limit",
         description="Closest possible distance between drones (m)",
         unit='LENGTH',
-        default=1.5,
+        default=1,
         min=0,
     )
 
@@ -66,6 +136,7 @@ class ExportLuaBinaries(Operator, ExportHelper):
         scene = context.scene
         objects = context.visible_objects
         pioneers = []
+        fps = context.scene.render.fps
         if self.using_name_filter:
             for pioneers_obj in objects:
                 if self.drones_name.lower() in pioneers_obj.name.lower():
@@ -73,32 +144,28 @@ class ExportLuaBinaries(Operator, ExportHelper):
         else:
             pioneers = objects
 
-        f = open(self.filepath, 'w')
+        pioneer_id = 1
         for pioneer in pioneers:
-            prev_x, prev_y, prev_z = None, None, None
+            coords_array = list()
+            colors_array = list()
+            faults = False
             for frame in range(scene.frame_start, scene.frame_end + 1):
                 scene.frame_set(frame)
-                x, y, z = pioneer.matrix_world.to_translation()
-                rot_z = pioneer.matrix_world.to_euler('XYZ')[2]
-                f.write("%.2f %.2f %.2f\n" % (x, y, z))
-        f.close()
+                if frame % int(fps / context.scene.positionFreq) == 0:
+                    x, y, z = pioneer.matrix_world.to_translation()
+                    coords_array.append((x, y, z))
+                    # rot_z = pioneer.matrix_world.to_euler('XYZ')[2]
+                if frame % int(fps / context.scene.colorFreq) == 0:
+                    r, g, b, _ = pioneer.active_material.diffuse_color
+                    if r is None:
+                        faults = True
+                        self.report({"ERROR"}, "No color found on %s on frame %d" % (pioneer.name, frame))
+                    colors_array.append((r, g, b))
+            if not faults:
+                write_to_bin(pioneer_id, coords_array, colors_array, self.filepath)
+            pioneer_id += 1
         self.report({"INFO"}, "GeoScan show is better than urs")
         return {"FINISHED"}
-
-
-CONFIG_PROPS = [
-    ('using_name_filter', BoolProperty(name='Use namefilter for drones',
-                                       default=True)),
-    ('drones_name', StringProperty(name='Name',
-                                   default="Pioneer")),
-    ('minimum_drone_distance', FloatProperty(name='Minimal distance (m)',
-                                             default=3.0)),
-    ('speed_exceed_value', FloatProperty(name='Limit of  speed (m/s)',
-                                         default=1.5)),
-]
-SYSTEM_PROPS = [
-    ('export_allowed', BoolProperty(default=False)),
-]
 
 
 class ConfigurePanel(Panel):
@@ -111,9 +178,6 @@ class ConfigurePanel(Panel):
     def draw(self, context):
         col = self.layout.column()
         for (prop_name, _) in CONFIG_PROPS:
-            row = col.row()
-            row.prop(context.scene, prop_name)
-        for (prop_name, _) in SYSTEM_PROPS:
             row = col.row()
             row.prop(context.scene, prop_name)
         col.operator(CheckForLimits.bl_idname, text=CheckForLimits.bl_label)
