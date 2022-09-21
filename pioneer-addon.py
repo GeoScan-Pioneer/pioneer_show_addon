@@ -33,59 +33,6 @@ SYSTEM_PROPS = [
 ]
 
 
-def write_to_bin(droneNum, coords_array, colors_array, filepath):
-    headerFormat = '<BBBBBBHHfffff'
-    size = struct.calcsize(headerFormat)
-    meta_data = {
-        # if -1 == should be calculated
-        "Version": 1,
-        "AnimationId": 0,
-        "FreqPositions": bpy.context.scene.positionFreq,
-        "FreqColors": bpy.context.scene.colorFreq,
-        "FormatPositions": struct.calcsize('f'),
-        "FormatColors": struct.calcsize('B'),
-        "NumberPositions": len(coords_array),
-        "NumberColors": len(colors_array),
-        "TimeStart": -1,
-        "TimeEnd": -1,
-        "LatOrigin": 0,
-        "LonOrigin": 0,
-        "AltOrigin": 0,  # not used == 0
-    }
-    outBinPath = ''.join([filepath, '_', str(droneNum), '.bin'])
-    coords_size = len(coords_array)
-    with open(outBinPath, "wb") as f:
-        # Control sequence
-        f.write(b'\xaa\xbb\xcc\xdd')
-        f.write(struct.pack(headerFormat, meta_data['Version'],
-                            meta_data['AnimationId'],
-                            meta_data['FreqPositions'],
-                            meta_data['FreqColors'],
-                            meta_data['FormatPositions'],
-                            meta_data['FormatColors'],
-                            meta_data['NumberPositions'],
-                            meta_data['NumberColors'],
-                            meta_data['TimeStart'],
-                            meta_data['TimeEnd'],
-                            meta_data['LatOrigin'],
-                            meta_data['LonOrigin'],
-                            meta_data['AltOrigin']))
-        # Points data starts at offset of 100 bytes
-        for i in range(size + 4, 100):
-            f.write(b'\x00')
-        # Write points
-        for point in coords_array:
-            f.write(struct.pack('<fff', point[0], point[1], point[2]))
-
-        # Colors data starts at offset of 21700 bytes
-        if coords_size < 1800:
-            for _ in range(coords_size, 1800):
-                f.write(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00')
-        # Write colors
-        for color in colors_array:
-            f.write(struct.pack('<BBB', int(color[0] * 255), int(color[1] * 255), int(color[2] * 255)))
-
-
 # class TOPBAR_MT_custom_sub_menu(bpy.types.Menu):
 #     bl_label = "Sub Menu"
 #
@@ -109,18 +56,18 @@ class ExportLuaBinaries(Operator, ExportHelper):
         default="Pioneer"
     )
 
-    speed_exceed_value: FloatProperty(
-        name="Speed limit",
-        description="Limit of drone movement speed (m/s)",
-        unit='VELOCITY',
-        default=5,
+    x_offset: FloatProperty(
+        name="X offset",
+        description="X coordinate offset",
+        unit='LENGTH',
+        default=0,
         min=0,
     )
-    minimum_drone_distance: FloatProperty(
-        name="Distance limit",
-        description="Closest possible distance between drones (m)",
+    y_offset: FloatProperty(
+        name="Y offset",
+        description="Y coordinate offset",
         unit='LENGTH',
-        default=1,
+        default=0,
         min=0,
     )
 
@@ -153,7 +100,7 @@ class ExportLuaBinaries(Operator, ExportHelper):
                 scene.frame_set(frame)
                 if frame % int(fps / context.scene.positionFreq) == 0:
                     x, y, z = pioneer.matrix_world.to_translation()
-                    coords_array.append((x, y, z))
+                    coords_array.append((x + self.x_offset, y + self.y_offset, -z))
                     # rot_z = pioneer.matrix_world.to_euler('XYZ')[2]
                 if frame % int(fps / context.scene.colorFreq) == 0:
                     r, g, b, _ = pioneer.active_material.diffuse_color
@@ -162,10 +109,76 @@ class ExportLuaBinaries(Operator, ExportHelper):
                         self.report({"ERROR"}, "No color found on %s on frame %d" % (pioneer.name, frame))
                     colors_array.append((r, g, b))
             if not faults:
-                write_to_bin(pioneer_id, coords_array, colors_array, self.filepath)
+                self.write_to_bin(pioneer_id, coords_array, colors_array, self.filepath)
             pioneer_id += 1
         self.report({"INFO"}, "GeoScan show is better than urs")
         return {"FINISHED"}
+
+    @staticmethod
+    def write_to_bin(droneNum, coords_array, colors_array, filepath):
+        headerFormat = '<BBBBBBHHfffff'
+        size = struct.calcsize(headerFormat)
+        meta_data = {
+            # if -1 == should be calculated
+            "Version": 1,
+            "AnimationId": 0,
+            "FreqPositions": bpy.context.scene.positionFreq,
+            "FreqColors": bpy.context.scene.colorFreq,
+            "FormatPositions": struct.calcsize('f'),
+            "FormatColors": struct.calcsize('B'),
+            "NumberPositions": len(coords_array),
+            "NumberColors": len(colors_array),
+            "TimeStart": -1,
+            "TimeEnd": -1,
+            "LatOrigin": 0,
+            "LonOrigin": 0,
+            "AltOrigin": 0,  # not used == 0
+        }
+
+        outBinPath = ''.join([filepath, '_', str(droneNum), '.bin'])
+        coords_size = len(coords_array)
+        with open(outBinPath, "wb") as f:
+            # Control sequence
+            f.write(b'\xaa\xbb\xcc\xdd')
+            f.write(struct.pack(headerFormat, meta_data['Version'],
+                                meta_data['AnimationId'],
+                                meta_data['FreqPositions'],
+                                meta_data['FreqColors'],
+                                meta_data['FormatPositions'],
+                                meta_data['FormatColors'],
+                                meta_data['NumberPositions'],
+                                meta_data['NumberColors'],
+                                meta_data['TimeStart'],
+                                meta_data['TimeEnd'],
+                                meta_data['LatOrigin'],
+                                meta_data['LonOrigin'],
+                                meta_data['AltOrigin']))
+            # Points data starts at offset of 100 bytes
+            for i in range(size + 4, 100):
+                f.write(b'\x00')
+            # Write points
+            for point in coords_array:
+                f.write(struct.pack('<fff', point[0], point[1], point[2]))
+
+            # Colors data starts at offset of 21700 bytes
+            if coords_size < 1800:
+                for _ in range(coords_size, 1800):
+                    f.write(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00')
+            # Write colors
+            for color in colors_array:
+                f.write(struct.pack('<BBB', int(color[0] * 255), int(color[1] * 255), int(color[2] * 255)))
+
+            f.close()
+        outBinPath = ''.join([filepath, '_', str(droneNum), '.coord'])
+        with open(outBinPath, "w") as f:
+            for point in coords_array:
+                f.write(str(point) + '\n')
+            f.close()
+        outBinPath = ''.join([filepath, '_', str(droneNum), '.color'])
+        with open(outBinPath, "w") as f:
+            for color in colors_array:
+                f.write(str((int(color[0] * 255), int(color[1] * 255), int(color[2] * 255))) + '\n')
+            f.close()
 
 
 class ConfigurePanel(Panel):
@@ -194,6 +207,7 @@ class CheckForLimits(Operator):
         speed_exeeded = False
         frame_speed_exeeded = None
         speed_exeeded_drone = None
+        exeeded_speed = None
         distance_underestimated = False
         frame_low_distance = None
         low_distance_drones = [None, None]
@@ -221,8 +235,17 @@ class CheckForLimits(Operator):
                         speed_exeeded = True
                         frame_speed_exeeded = frame
                         speed_exeeded_drone = pioneer.name
+                        exeeded_speed = speed
                         break
                 prev_x, prev_y, prev_z = x, y, z
+                for another_pioneer in pioneers[pioneers.index(pioneer) + 1:]:
+                    _x, _y, _z = another_pioneer.matrix_world.to_translation()
+                    distance = self.get_distance((x, y, z), (_x, _y, _z))
+                    if distance < context.scene.minimum_drone_distance:
+                        distance_underestimated = True
+                        frame_low_distance = frame
+                        low_distance_drones = [pioneer.name, another_pioneer.name]
+                        break
 
         if not speed_exeeded and not distance_underestimated:
             bpy.context.scene.export_allowed = True
@@ -230,10 +253,12 @@ class CheckForLimits(Operator):
         else:
             bpy.context.scene.export_allowed = False
             if speed_exeeded:
-                self.report({"ERROR"}, "Speed exceeded on frame %d on drone %s" % (frame_speed_exeeded,
-                                                                                   speed_exeeded_drone))
+                self.report({"ERROR"}, "Speed exceeded on frame %d on drone %s. speed: %.2f m/s" % (frame_speed_exeeded,
+                                                                                                    speed_exeeded_drone,
+                                                                                                    exeeded_speed))
             else:
-                self.report({"ERROR"}, "Distance less than minimums")
+                self.report({"ERROR"}, "Distance less than minimums n frame %d on drones  %s & %s" % (
+                    frame_low_distance, low_distance_drones[0], low_distance_drones[1]))
         return {"FINISHED"}
 
     @staticmethod
@@ -294,7 +319,8 @@ def register():
 
 def unregister():
     bpy.context.scene.export_allowed = False
-    [bpy.app.handlers.depsgraph_update_pre.remove(h) for h in pre_handlers if h.__name__ == "change_handler"]
+    [bpy.app.handlers.depsgraph_update_pre.remove(h) for h in bpy.app.handlers.depsgraph_update_pre if
+     h.__name__ == "change_handler"]
     bpy.types.TOPBAR_MT_editor_menus.remove(TOPBAR_MT_geoscan_menu.menu_draw)
     for (prop_name, _) in CONFIG_PROPS:
         delattr(bpy.types.Scene, prop_name)
