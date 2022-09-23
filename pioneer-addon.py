@@ -17,20 +17,55 @@ bl_info = {
 }
 
 CONFIG_PROPS = [
-    ('using_name_filter', BoolProperty(name='Use namefilter for drones',
+    ("using_name_filter", BoolProperty(name="Use namefilter for drones",
                                        default=True)),
-    ('drones_name', StringProperty(name='Name',
+    ("drones_name", StringProperty(name="Name",
                                    default="Pioneer")),
-    ('minimum_drone_distance', FloatProperty(name='Minimal distance (m)',
+    ("minimum_drone_distance", FloatProperty(name="Minimal distance (m)",
                                              default=3.0)),
-    ('speed_exceed_value', FloatProperty(name='Limit of  speed (m/s)',
+    ("speed_exceed_value", FloatProperty(name="Limit of  speed (m/s)",
                                          default=1.5)),
 ]
-SYSTEM_PROPS = [
-    ('export_allowed', BoolProperty(default=False)),
-    ('positionFreq', IntProperty(default=2)),
-    ('colorFreq', IntProperty(default=5)),
+SYSTEM_PROPS_PUBLIC = [
+    ("positionFreq", IntProperty(name="Position FPS",
+                                 default=2)),
+    ("colorFreq", IntProperty(name="Color FPS",
+                              default=5)),
 ]
+
+SYSTEM_PROPS_PRIVATE = [
+    ("export_allowed", BoolProperty(default=False)),
+    ("language", BoolProperty(default=False)),
+]
+
+LANGUAGE_PACK_ENGLISH = {
+    "using_name_filter": "Use name filter for drones",
+    "drones_name": "Name",
+    "minimum_drone_distance": "Minimal distance (m)",
+    "speed_exceed_value": "Limit of  speed (m/s)",
+    "positionFreq": "Position FPS",
+    "colorFreq": "Color FPS",
+    "ExportLuaBinaries": "Export LUA binaries",
+    "CheckForLimits": "Check if is animation correct",
+    "ChangeLanguage": "Сменить язык",
+}
+
+LANGUAGE_PACK_RUSSIAN = {
+    "using_name_filter": "Использовать фильтр имен",
+    "drones_name": "Имя",
+    "minimum_drone_distance": "Минимальное расстояние (м)",
+    "speed_exceed_value": "Предел скорости (м/с)",
+    "positionFreq": "Частота сохранения позиции",
+    "colorFreq": "Частота сохранения цветов",
+    "ExportLuaBinaries": "Экспорт бинарников",
+    "CheckForLimits": "Проверка корректности анимации",
+    "ChangeLanguage": "Change language",
+}
+
+LANGUAGE_PACK = {
+    False: LANGUAGE_PACK_ENGLISH,
+    True: LANGUAGE_PACK_RUSSIAN
+}
 
 
 # class TOPBAR_MT_custom_sub_menu(bpy.types.Menu):
@@ -182,7 +217,7 @@ class ExportLuaBinaries(Operator, ExportHelper):
 
 
 class ConfigurePanel(Panel):
-    bl_idname = 'VIEW3D_PT_geoscan_panel'
+    bl_idname = 'VIEW3D_PT_geoscan_config_panel'
     bl_label = 'GeoScan show'
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
@@ -192,8 +227,32 @@ class ConfigurePanel(Panel):
         col = self.layout.column()
         for (prop_name, _) in CONFIG_PROPS:
             row = col.row()
-            row.prop(context.scene, prop_name)
-        col.operator(CheckForLimits.bl_idname, text=CheckForLimits.bl_label)
+            row.prop(context.scene, prop_name, text=(LANGUAGE_PACK.get(context.scene.language)).get(prop_name))
+        col.operator(CheckForLimits.bl_idname, text=(LANGUAGE_PACK.get(context.scene.language)).get("CheckForLimits"))
+
+
+class SystemPanel(Panel):
+    bl_idname = 'VIEW3D_PT_geoscan_system_panel'
+    bl_label = 'GeoScan system properties'
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "GeoScan"
+
+    def draw(self, context):
+        col = self.layout.column()
+        for (prop_name, _) in SYSTEM_PROPS_PUBLIC:
+            row = col.row()
+            row.prop(context.scene, prop_name, text=(LANGUAGE_PACK.get(context.scene.language)).get(prop_name))
+        col.operator(ChangeLanguage.bl_idname, text=(LANGUAGE_PACK.get(context.scene.language)).get("ChangeLanguage"))
+
+
+class ChangeLanguage(Operator):
+    bl_idname = "show.change_language"
+    bl_label = "Сменить язык"
+
+    def execute(self, context):
+        context.scene.language = not context.scene.language
+        return {"FINISHED"}
 
 
 class CheckForLimits(Operator):
@@ -284,10 +343,16 @@ class TOPBAR_MT_geoscan_menu(bpy.types.Menu):
 
         _export_lua = row.row()
         _export_lua.enabled = bpy.context.scene.export_allowed
-        _export_lua.operator(ExportLuaBinaries.bl_idname, text=ExportLuaBinaries.bl_label)
+        _export_lua.operator(ExportLuaBinaries.bl_idname,
+                             text=(LANGUAGE_PACK.get(context.scene.language)).get("ExportLuaBinaries"))
 
         _check_limits = col.row()
-        _check_limits.operator(CheckForLimits.bl_idname, text=CheckForLimits.bl_label)
+        _check_limits.operator(CheckForLimits.bl_idname,
+                               text=(LANGUAGE_PACK.get(context.scene.language)).get("CheckForLimits"))
+
+        _change_language = col.row()
+        _change_language.operator(ChangeLanguage.bl_idname,
+                                  text=(LANGUAGE_PACK.get(context.scene.language)).get("ChangeLanguage"))
 
     def menu_draw(self, context):
         self.layout.menu("TOPBAR_MT_geoscan_menu")
@@ -298,7 +363,9 @@ classes = []
 classes.append(TOPBAR_MT_geoscan_menu)
 classes.append(ExportLuaBinaries)
 classes.append(ConfigurePanel)
+classes.append(SystemPanel)
 classes.append(CheckForLimits)
+classes.append(ChangeLanguage)
 
 
 def change_handler(scene):
@@ -309,8 +376,12 @@ def register():
     for (prop_name, prop_value) in CONFIG_PROPS:
         setattr(bpy.types.Scene, prop_name, prop_value)
 
-    for (prop_name, prop_value) in SYSTEM_PROPS:
+    for (prop_name, prop_value) in SYSTEM_PROPS_PUBLIC:
         setattr(bpy.types.Scene, prop_name, prop_value)
+
+    for (prop_name, prop_value) in SYSTEM_PROPS_PRIVATE:
+        setattr(bpy.types.Scene, prop_name, prop_value)
+
     for cls in classes:
         bpy.utils.register_class(cls)
     bpy.types.TOPBAR_MT_editor_menus.append(TOPBAR_MT_geoscan_menu.menu_draw)
@@ -325,7 +396,10 @@ def unregister():
     for (prop_name, _) in CONFIG_PROPS:
         delattr(bpy.types.Scene, prop_name)
 
-    for (prop_name, _) in SYSTEM_PROPS:
+    for (prop_name, _) in SYSTEM_PROPS_PUBLIC:
+        delattr(bpy.types.Scene, prop_name)
+
+    for (prop_name, _) in SYSTEM_PROPS_PRIVATE:
         delattr(bpy.types.Scene, prop_name)
 
     for cls in classes:
