@@ -1,6 +1,6 @@
 import bpy
 from bpy_extras.io_utils import ExportHelper
-from bpy.types import Operator, Panel
+from bpy.types import Operator, Panel, WindowManager
 from bpy.props import StringProperty, BoolProperty, FloatProperty, IntProperty
 
 import os
@@ -17,7 +17,7 @@ bl_info = {
 }
 
 CONFIG_PROPS = [
-    ("using_name_filter", BoolProperty(name="Use namefilter for drones",
+    ("using_name_filter", BoolProperty(name="Use name filter for drones",
                                        default=True)),
     ("drones_name", StringProperty(name="Name",
                                    default="Pioneer")),
@@ -43,10 +43,15 @@ LANGUAGE_PACK_ENGLISH = {
     "drones_name": "Name",
     "minimum_drone_distance": "Minimal distance (m)",
     "speed_exceed_value": "Limit of  speed (m/s)",
-    "positionFreq": "Position FPS",
-    "colorFreq": "Color FPS",
+    "positionFreq": "Position FPS (Hz)",
+    "colorFreq": "Color FPS (Hz)",
+    "x_offset": "Start point X offset (m)",
+    "y_offset": "Start point Y offset (m)",
+    "z_offset": "Start point Z offset (m)",
     "ExportLuaBinaries": "Export LUA binaries",
     "CheckForLimits": "Check if is animation correct",
+    "CheckSuccess": "Check is success",
+    "SystemProperties": "GeoScan system properties",
     "ChangeLanguage": "Сменить язык",
 }
 
@@ -55,10 +60,15 @@ LANGUAGE_PACK_RUSSIAN = {
     "drones_name": "Имя",
     "minimum_drone_distance": "Минимальное расстояние (м)",
     "speed_exceed_value": "Предел скорости (м/с)",
-    "positionFreq": "Частота сохранения позиции",
-    "colorFreq": "Частота сохранения цветов",
+    "positionFreq": "Частота сохранения позиции (Гц)",
+    "colorFreq": "Частота сохранения цветов (Гц)",
+    "x_offset": "Смещение 0 точки по Х (м)",
+    "y_offset": "Смещение 0 точки по У (м)",
+    "z_offset": "Смещение 0 точки по Z (м)",
     "ExportLuaBinaries": "Экспорт бинарников",
     "CheckForLimits": "Проверка корректности анимации",
+    "CheckSuccess": "Проверка успешно пройдена",
+    "SystemProperties": "GeoScan системные параметры",
     "ChangeLanguage": "Change language",
 }
 
@@ -68,44 +78,29 @@ LANGUAGE_PACK = {
 }
 
 
-# class TOPBAR_MT_custom_sub_menu(bpy.types.Menu):
-#     bl_label = "Sub Menu"
-#
-#     def draw(self, context):
-#         layout = self.layout
-#         layout.operator("mesh.primitive_cube_add")
-
 class ExportLuaBinaries(Operator, ExportHelper):
     bl_idname = "show.export_lua_binaries"
     bl_label = "Export LUA binaries for drones"
     filename_ext = ''
 
-    using_name_filter: BoolProperty(
-        name="Filter objects by name",
-        default=True
-    )
-
-    drones_name: StringProperty(
-        name="Name identifier",
-        description="Name identifier for all drone objects",
-        default="Pioneer"
-    )
-
     x_offset: FloatProperty(
-        name="X offset",
+        name="X_offset",
         description="X coordinate offset",
-        unit='LENGTH',
         default=0,
-        min=0,
+        step=0.5,
     )
     y_offset: FloatProperty(
         name="Y offset",
         description="Y coordinate offset",
-        unit='LENGTH',
         default=0,
-        min=0,
+        step=0.5,
     )
-
+    z_offset: FloatProperty(
+        name="Z offset",
+        description="Z coordinate offset",
+        default=0,
+        step=0.5,
+    )
     filepath: StringProperty(
         name="File Path",
         description="File path used for exporting csv files",
@@ -113,6 +108,28 @@ class ExportLuaBinaries(Operator, ExportHelper):
         subtype='DIR_PATH',
         default=""
     )
+
+    def draw(self, context):
+        global_props = ["using_name_filter",
+                        "drones_name",
+                        "positionFreq",
+                        "colorFreq", ]
+        local_props = ["x_offset",
+                       "y_offset",
+                       "z_offset", ]
+
+        layout = self.layout
+        for prop_name in global_props:
+            col = layout.column()
+            row = col.row()
+            row.label(text=(LANGUAGE_PACK.get(context.scene.language)).get(prop_name))
+            row.prop(context.scene, prop_name, text='')
+
+        for prop_name in local_props:
+            col = layout.column()
+            row = col.row()
+            row.label(text=(LANGUAGE_PACK.get(context.scene.language)).get(prop_name))
+            row.prop(self, prop_name, text='')
 
     def execute(self, context):
         scene = context.scene
@@ -136,22 +153,64 @@ class ExportLuaBinaries(Operator, ExportHelper):
                 if frame % int(fps / context.scene.positionFreq) == 0:
                     x, y, z = pioneer.matrix_world.to_translation()
                     coords_array.append((x + self.x_offset, y + self.y_offset, -z))
-                    # rot_z = pioneer.matrix_world.to_euler('XYZ')[2]
                 if frame % int(fps / context.scene.colorFreq) == 0:
                     r, g, b, _ = pioneer.active_material.diffuse_color
                     if r is None:
                         faults = True
                         self.report({"ERROR"}, "No color found on %s on frame %d" % (pioneer.name, frame))
+                        return {"CANCELLED"}
                     colors_array.append((r, g, b))
             if not faults:
-                self.write_to_bin(pioneer_id, coords_array, colors_array, self.filepath)
+                self.write_to_bin_old(pioneer_id, coords_array, colors_array, self.filepath)
             pioneer_id += 1
         self.report({"INFO"}, "GeoScan show is better than urs")
         return {"FINISHED"}
 
     @staticmethod
-    def write_to_bin(droneNum, coords_array, colors_array, filepath):
-        headerFormat = '<BBBBBBHHfffff'
+    def write_to_bin(droneNum, meta_data, coords_array, colors_array):
+        HeaderFormat = '<BLBBBBBBBBHHfffff'
+        size = struct.calcsize(HeaderFormat)
+        outBinPath = ''.join([dirPath, '/', prefix, str(droneNum), '.bin'])
+        print(outBinPath)
+        coords_size = len(coords_array)
+        with open(outBinPath, "wb") as f:
+            # Control sequence
+            f.write(b'\xaa\xbb\xcc\xdd')
+            f.write(struct.pack(HeaderFormat, meta_data['Version'],
+                                meta_data['AnimationId'],
+                                meta_data['PreFlightColor'],
+                                meta_data['UserColorRed'],
+                                meta_data['UserColorGreen'],
+                                meta_data['UserColorBlue'],
+                                meta_data['FreqPositions'],
+                                meta_data['FreqColors'],
+                                meta_data['FormatPositions'],
+                                meta_data['FormatColors'],
+                                meta_data['NumberPositions'],
+                                meta_data['NumberColors'],
+                                meta_data['TimeStart'],
+                                meta_data['TimeEnd'],
+                                meta_data['LatOrigin'],
+                                meta_data['LonOrigin'],
+                                meta_data['AltOrigin']))
+            # Points data starts at offset of 100 bytes
+            for i in range(size + 4, 100):
+                f.write(b'\x00')
+            # Write points
+            for point in coords_array:
+                f.write(struct.pack('<fff', point[1], point[2], point[3]))
+
+            # Colors data starts at offset of 43300 bytes
+            if coords_size < 3600:
+                for _ in range(coords_size, 3600):
+                    f.write(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00')
+            # Write colors
+            for color in colors_array:
+                f.write(struct.pack('<BBB', color[1], color[2], color[3]))
+
+    @staticmethod
+    def write_to_bin_old(droneNum, coords_array, colors_array, filepath):
+        headerFormat = "<BBBBBBHHfffff"
         size = struct.calcsize(headerFormat)
         meta_data = {
             # if -1 == should be calculated
@@ -204,16 +263,6 @@ class ExportLuaBinaries(Operator, ExportHelper):
                 f.write(struct.pack('<BBB', int(color[0] * 255), int(color[1] * 255), int(color[2] * 255)))
 
             f.close()
-        outBinPath = ''.join([filepath, '_', str(droneNum), '.coord'])
-        with open(outBinPath, "w") as f:
-            for point in coords_array:
-                f.write(str(point) + '\n')
-            f.close()
-        outBinPath = ''.join([filepath, '_', str(droneNum), '.color'])
-        with open(outBinPath, "w") as f:
-            for color in colors_array:
-                f.write(str((int(color[0] * 255), int(color[1] * 255), int(color[2] * 255))) + '\n')
-            f.close()
 
 
 class ConfigurePanel(Panel):
@@ -263,10 +312,10 @@ class CheckForLimits(Operator):
         params = {}
         for (prop_name, _) in CONFIG_PROPS:
             exec("params.update({prop_name: context.scene." + prop_name + "})")
-        speed_exeeded = False
-        frame_speed_exeeded = None
-        speed_exeeded_drone = None
-        exeeded_speed = None
+        speed_exceeded = False
+        frame_speed_exceeded = None
+        speed_exceeded_drone = None
+        exceeded_speed = None
         distance_underestimated = False
         frame_low_distance = None
         low_distance_drones = [None, None]
@@ -283,7 +332,7 @@ class CheckForLimits(Operator):
 
         for pioneer in pioneers:
             prev_x, prev_y, prev_z = None, None, None
-            if speed_exeeded or distance_underestimated:
+            if speed_exceeded or distance_underestimated:
                 break
             for frame in range(scene.frame_start, scene.frame_end + 1):
                 scene.frame_set(frame)
@@ -291,10 +340,10 @@ class CheckForLimits(Operator):
                 if prev_x is not None and prev_y is not None and prev_z is not None:
                     speed = self.get_speed((x, y, z), (prev_x, prev_y, prev_z))
                     if speed > params["speed_exceed_value"]:
-                        speed_exeeded = True
-                        frame_speed_exeeded = frame
-                        speed_exeeded_drone = pioneer.name
-                        exeeded_speed = speed
+                        speed_exceeded = True
+                        frame_speed_exceeded = frame
+                        speed_exceeded_drone = pioneer.name
+                        exceeded_speed = speed
                         break
                 prev_x, prev_y, prev_z = x, y, z
                 for another_pioneer in pioneers[pioneers.index(pioneer) + 1:]:
@@ -306,15 +355,16 @@ class CheckForLimits(Operator):
                         low_distance_drones = [pioneer.name, another_pioneer.name]
                         break
 
-        if not speed_exeeded and not distance_underestimated:
+        if not speed_exceeded and not distance_underestimated:
             bpy.context.scene.export_allowed = True
             self.report({"INFO"}, "Check is success")
         else:
             bpy.context.scene.export_allowed = False
-            if speed_exeeded:
-                self.report({"ERROR"}, "Speed exceeded on frame %d on drone %s. speed: %.2f m/s" % (frame_speed_exeeded,
-                                                                                                    speed_exeeded_drone,
-                                                                                                    exeeded_speed))
+            if speed_exceeded:
+                self.report({"ERROR"},
+                            "Speed exceeded on frame %d on drone %s. speed: %.2f m/s" % (frame_speed_exceeded,
+                                                                                         speed_exceeded_drone,
+                                                                                         exceeded_speed))
             else:
                 self.report({"ERROR"}, "Distance less than minimums n frame %d on drones  %s & %s" % (
                     frame_low_distance, low_distance_drones[0], low_distance_drones[1]))
@@ -358,8 +408,7 @@ class TOPBAR_MT_geoscan_menu(bpy.types.Menu):
         self.layout.menu("TOPBAR_MT_geoscan_menu")
 
 
-classes = []
-# classes.append(TOPBAR_MT_custom_sub_menu)
+classes = list()
 classes.append(TOPBAR_MT_geoscan_menu)
 classes.append(ExportLuaBinaries)
 classes.append(ConfigurePanel)
