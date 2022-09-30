@@ -51,6 +51,10 @@ LANGUAGE_PACK_ENGLISH = {
     "ExportLuaBinaries": "Export LUA binaries",
     "CheckForLimits": "Check if is animation correct",
     "CheckSuccess": "Check is success",
+    "speed_exceeded_error": "Speed exceeded on frame %d on drone %s. speed: %.2f m/s",
+    "distance_underestimated_error": "Distance less than minimums on frame %d on drones  %s & %s",
+    "miss_color_error": "No color found on %s on frame %d",
+    "export_successed": "GeoScan show is better than urs!",
     "SystemProperties": "GeoScan system properties",
     "ChangeLanguage": "Сменить язык",
 }
@@ -68,6 +72,10 @@ LANGUAGE_PACK_RUSSIAN = {
     "ExportLuaBinaries": "Экспорт бинарников",
     "CheckForLimits": "Проверка корректности анимации",
     "CheckSuccess": "Проверка успешно пройдена",
+    "speed_exceeded_error": "Скорость превышена на кадре %d дроном %s. скорость: %.2f м/с",
+    "distance_underestimated_error": "Расстояние меньше минимального на кадре %d между дронами  %s и %s",
+    "miss_color_error": "Не найден цвет у %s на кадре %d",
+    "export_successed": "GeoScan шоу успешно создано",
     "SystemProperties": "GeoScan системные параметры",
     "ChangeLanguage": "Change language",
 }
@@ -136,9 +144,9 @@ class ExportLuaBinaries(Operator, ExportHelper):
         objects = context.visible_objects
         pioneers = []
         fps = context.scene.render.fps
-        if self.using_name_filter:
+        if context.scene.using_name_filter:
             for pioneers_obj in objects:
-                if self.drones_name.lower() in pioneers_obj.name.lower():
+                if context.scene.drones_name.lower() in pioneers_obj.name.lower():
                     pioneers.append(pioneers_obj)
         else:
             pioneers = objects
@@ -152,25 +160,46 @@ class ExportLuaBinaries(Operator, ExportHelper):
                 scene.frame_set(frame)
                 if frame % int(fps / context.scene.positionFreq) == 0:
                     x, y, z = pioneer.matrix_world.to_translation()
-                    coords_array.append((x + self.x_offset, y + self.y_offset, -z))
+                    coords_array.append((x + self.x_offset, y + self.y_offset, z + self.z_offset))
                 if frame % int(fps / context.scene.colorFreq) == 0:
                     r, g, b, _ = pioneer.active_material.diffuse_color
                     if r is None:
                         faults = True
-                        self.report({"ERROR"}, "No color found on %s on frame %d" % (pioneer.name, frame))
+                        self.report({"ERROR"}, (LANGUAGE_PACK.get(context.scene.language)).get("missed_color_error")
+                                    % (pioneer.name, frame))
                         return {"CANCELLED"}
                     colors_array.append((r, g, b))
             if not faults:
-                self.write_to_bin_old(pioneer_id, coords_array, colors_array, self.filepath)
+                self.write_to_bin(pioneer_id, coords_array, colors_array, self.filepath)
             pioneer_id += 1
-        self.report({"INFO"}, "GeoScan show is better than urs")
+        self.report({"INFO"}, (LANGUAGE_PACK.get(context.scene.language)).get("export_successed"))
         return {"FINISHED"}
 
     @staticmethod
-    def write_to_bin(droneNum, meta_data, coords_array, colors_array):
+    def write_to_bin(droneNum, coords_array, colors_array, filepath):
         HeaderFormat = '<BLBBBBBBBBHHfffff'
         size = struct.calcsize(HeaderFormat)
-        outBinPath = ''.join([dirPath, '/', prefix, str(droneNum), '.bin'])
+        meta_data = {
+            # if -1 == should be calculated
+            "Version": 2,
+            "AnimationId": 1,
+            "PreFlightColor": 249,
+            "UserColorRed": 0,
+            "UserColorGreen": 0,
+            "UserColorBlue": 0,
+            "FreqPositions": bpy.context.scene.positionFreq,
+            "FreqColors": bpy.context.scene.colorFreq,
+            "FormatPositions": struct.calcsize('f'),
+            "FormatColors": struct.calcsize('B'),
+            "NumberPositions": len(coords_array),
+            "NumberColors": len(colors_array),
+            "TimeStart": -1,
+            "TimeEnd": -1,
+            "LatOrigin": 0,
+            "LonOrigin": 0,
+            "AltOrigin": 0,  # not used == 0
+        }
+        outBinPath = ''.join([filepath, '_', str(droneNum), '.bin'])
         print(outBinPath)
         coords_size = len(coords_array)
         with open(outBinPath, "wb") as f:
@@ -198,7 +227,7 @@ class ExportLuaBinaries(Operator, ExportHelper):
                 f.write(b'\x00')
             # Write points
             for point in coords_array:
-                f.write(struct.pack('<fff', point[1], point[2], point[3]))
+                f.write(struct.pack('<fff', point[0], point[1], point[2]))
 
             # Colors data starts at offset of 43300 bytes
             if coords_size < 3600:
@@ -206,7 +235,7 @@ class ExportLuaBinaries(Operator, ExportHelper):
                     f.write(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00')
             # Write colors
             for color in colors_array:
-                f.write(struct.pack('<BBB', color[1], color[2], color[3]))
+                f.write(struct.pack('<BBB', int(color[0] * 255), int(color[1] * 255), int(color[2] * 255)))
 
     @staticmethod
     def write_to_bin_old(droneNum, coords_array, colors_array, filepath):
@@ -334,7 +363,7 @@ class CheckForLimits(Operator):
             prev_x, prev_y, prev_z = None, None, None
             if speed_exceeded or distance_underestimated:
                 break
-            for frame in range(scene.frame_start, scene.frame_end + 1):
+            for frame in range(scene.frame_start, scene.frame_end + 1, int(scene.render.fps / scene.positionFreq)):
                 scene.frame_set(frame)
                 x, y, z = pioneer.matrix_world.to_translation()
                 if prev_x is not None and prev_y is not None and prev_z is not None:
@@ -357,17 +386,17 @@ class CheckForLimits(Operator):
 
         if not speed_exceeded and not distance_underestimated:
             bpy.context.scene.export_allowed = True
-            self.report({"INFO"}, "Check is success")
+            self.report({"INFO"}, (LANGUAGE_PACK.get(context.scene.language)).get("CheckSuccess"))
         else:
             bpy.context.scene.export_allowed = False
             if speed_exceeded:
-                self.report({"ERROR"},
-                            "Speed exceeded on frame %d on drone %s. speed: %.2f m/s" % (frame_speed_exceeded,
-                                                                                         speed_exceeded_drone,
-                                                                                         exceeded_speed))
+                self.report({"ERROR"}, (LANGUAGE_PACK.get(context.scene.language)).get("speed_exceeded_error") % (
+                    frame_speed_exceeded,
+                    speed_exceeded_drone,
+                    exceeded_speed))
             else:
-                self.report({"ERROR"}, "Distance less than minimums n frame %d on drones  %s & %s" % (
-                    frame_low_distance, low_distance_drones[0], low_distance_drones[1]))
+                self.report({"ERROR"}, (LANGUAGE_PACK.get(context.scene.language)).get("distance_underestimated_error")
+                            % (frame_low_distance, low_distance_drones[0], low_distance_drones[1]))
         return {"FINISHED"}
 
     @staticmethod
