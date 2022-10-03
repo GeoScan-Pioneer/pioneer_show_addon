@@ -156,7 +156,7 @@ class ExportLuaBinaries(Operator, ExportHelper):
             coords_array = list()
             colors_array = list()
             faults = False
-            for frame in range(scene.frame_start, scene.frame_end + 1):
+            for frame in range(scene.frame_start, scene.frame_enk + 1):
                 scene.frame_set(frame)
                 if frame % int(fps / context.scene.positionFreq) == 0:
                     x, y, z = pioneer.matrix_world.to_translation()
@@ -258,7 +258,7 @@ class ExportLuaBinaries(Operator, ExportHelper):
             "AltOrigin": 0,  # not used == 0
         }
 
-        outBinPath = ''.join([filepath, '_', str(droneNum), '.bin'])
+        outBinPath = ''.join([filepath, '_', str(droneNum), '_old.bin'])
         coords_size = len(coords_array)
         with open(outBinPath, "wb") as f:
             # Control sequence
