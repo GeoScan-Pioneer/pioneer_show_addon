@@ -56,6 +56,7 @@ LANGUAGE_PACK_ENGLISH = {
     "miss_color_error": "No color found on %s on frame %d",
     "export_successed": "GeoScan show is better than urs!",
     "SystemProperties": "GeoScan system properties",
+    "ConfigProperties": "GeoScan Show",
     "ChangeLanguage": "Сменить язык",
 }
 
@@ -77,6 +78,7 @@ LANGUAGE_PACK_RUSSIAN = {
     "miss_color_error": "Не найден цвет у %s на кадре %d",
     "export_successed": "GeoScan шоу успешно создано",
     "SystemProperties": "GeoScan системные параметры",
+    "ConfigProperties": "GeoScan Шоу",
     "ChangeLanguage": "Change language",
 }
 
@@ -330,7 +332,18 @@ class ChangeLanguage(Operator):
 
     def execute(self, context):
         context.scene.language = not context.scene.language
+        self.change_label(context, "VIEW3D_PT_geoscan_config_panel", "ConfigProperties")
+        self.change_label(context, "VIEW3D_PT_geoscan_system_panel", "SystemProperties")
         return {"FINISHED"}
+
+    @staticmethod
+    def change_label(context, bl_idname, language_idname):
+        system_panel = getattr(bpy.types, bl_idname)
+        if system_panel.is_registered:
+            bpy.utils.unregister_class(system_panel)
+            system_panel.bl_label = (LANGUAGE_PACK.get(context.scene.language)).get(language_idname)
+            bpy.utils.register_class(system_panel)
+
 
 
 class CheckForLimits(Operator):
@@ -416,7 +429,7 @@ class TOPBAR_MT_geoscan_menu(bpy.types.Menu):
 
     def draw(self, context):
         layout = self.layout
-        layout.menu("TOPBAR_MT_custom_sub_menu")
+        layout.menu("TOPBAR_MT_geoscan_sub_menu")
         col = layout.column()
         row = col.row()
 
