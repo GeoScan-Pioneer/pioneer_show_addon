@@ -3,6 +3,16 @@ from bpy_extras.io_utils import ExportHelper
 from bpy.types import Operator, Panel, WindowManager
 from bpy.props import StringProperty, BoolProperty, FloatProperty, IntProperty
 
+try:
+    import pymap3d
+except ModuleNotFoundError:
+    import subprocess
+    import sys
+    py_exec = str(sys.executable)
+    subprocess.call([py_exec, "-m", "ensurepip", "--user"])
+    subprocess.call([py_exec, "-m", "pip", "install", "--upgrade", "pip"])
+    subprocess.call([py_exec, "-m", "pip", "install", "pymap3d"])
+    import pymap3d
 import os
 import math
 import struct
@@ -45,16 +55,20 @@ LANGUAGE_PACK_ENGLISH = {
     "speed_exceed_value": "Limit of  speed (m/s)",
     "positionFreq": "Position FPS (Hz)",
     "colorFreq": "Color FPS (Hz)",
+    "position_system_true": "Navigation system GPS",
+    "position_system_false": "Navigation system LPS",
     "x_offset": "Start point X offset (m)",
     "y_offset": "Start point Y offset (m)",
     "z_offset": "Start point Z offset (m)",
+    "lon_offset": "Start point longitude (deg)",
+    "lat_offset": "Start point latitude (deg)",
     "ExportLuaBinaries": "Export LUA binaries",
     "CheckForLimits": "Check if is animation correct",
     "CheckSuccess": "Check is success",
     "speed_exceeded_error": "Speed exceeded on frame %d on drone %s. speed: %.2f m/s",
     "distance_underestimated_error": "Distance less than minimums on frame %d on drones  %s & %s",
     "miss_color_error": "No color found on %s on frame %d",
-    "export_successed": "GeoScan show is better than urs!",
+    "export_succeed": "GeoScan show is better than urs!",
     "SystemProperties": "GeoScan system properties",
     "ConfigProperties": "GeoScan Show",
     "ChangeLanguage": "Сменить язык",
@@ -67,16 +81,20 @@ LANGUAGE_PACK_RUSSIAN = {
     "speed_exceed_value": "Предел скорости (м/с)",
     "positionFreq": "Частота сохранения позиции (Гц)",
     "colorFreq": "Частота сохранения цветов (Гц)",
+    "position_system_true": "Навигация по GPS",
+    "position_system_false": "Навигация по LPS",
     "x_offset": "Смещение 0 точки по Х (м)",
     "y_offset": "Смещение 0 точки по У (м)",
     "z_offset": "Смещение 0 точки по Z (м)",
+    "lon_offset": "Долгота стартовой точки (град)",
+    "lat_offset": "Ширина стартовой точки (град)",
     "ExportLuaBinaries": "Экспорт бинарников",
     "CheckForLimits": "Проверка корректности анимации",
     "CheckSuccess": "Проверка успешно пройдена",
     "speed_exceeded_error": "Скорость превышена на кадре %d дроном %s. скорость: %.2f м/с",
     "distance_underestimated_error": "Расстояние меньше минимального на кадре %d между дронами  %s и %s",
     "miss_color_error": "Не найден цвет у %s на кадре %d",
-    "export_successed": "GeoScan шоу успешно создано",
+    "export_succeed": "GeoScan шоу успешно создано",
     "SystemProperties": "GeoScan системные параметры",
     "ConfigProperties": "GeoScan Шоу",
     "ChangeLanguage": "Change language",
@@ -92,7 +110,10 @@ class ExportLuaBinaries(Operator, ExportHelper):
     bl_idname = "show.export_lua_binaries"
     bl_label = "Export LUA binaries for drones"
     filename_ext = ''
-
+    position_system: BoolProperty(
+        name="Use GPS/LPS",
+        default=False,
+    )
     x_offset: FloatProperty(
         name="X_offset",
         description="X coordinate offset",
@@ -111,6 +132,16 @@ class ExportLuaBinaries(Operator, ExportHelper):
         default=0,
         step=0.5,
     )
+    lon_offset: FloatProperty(
+        name="Longitude offset",
+        description="Longitude coordinate offset",
+        default=0,
+    )
+    lat_offset: FloatProperty(
+        name="Latitude offset",
+        description="Latitude coordinate offset",
+        default=0,
+    )
     filepath: StringProperty(
         name="File Path",
         description="File path used for exporting csv files",
@@ -124,9 +155,13 @@ class ExportLuaBinaries(Operator, ExportHelper):
                         "drones_name",
                         "positionFreq",
                         "colorFreq", ]
-        local_props = ["x_offset",
-                       "y_offset",
-                       "z_offset", ]
+
+        local_props_lps = ["x_offset",
+                           "y_offset",
+                           "z_offset", ]
+
+        local_props_gps = ["lon_offset",
+                           "lat_offset", ]
 
         layout = self.layout
         for prop_name in global_props:
@@ -135,11 +170,26 @@ class ExportLuaBinaries(Operator, ExportHelper):
             row.label(text=(LANGUAGE_PACK.get(context.scene.language)).get(prop_name))
             row.prop(context.scene, prop_name, text='')
 
-        for prop_name in local_props:
-            col = layout.column()
-            row = col.row()
-            row.label(text=(LANGUAGE_PACK.get(context.scene.language)).get(prop_name))
-            row.prop(self, prop_name, text='')
+        col = layout.column()
+        row = col.row()
+        if self.position_system:
+            row.label(text=(LANGUAGE_PACK.get(context.scene.language)).get("position_system_true"))
+        else:
+            row.label(text=(LANGUAGE_PACK.get(context.scene.language)).get("position_system_false"))
+        row.prop(self, "position_system", text='')
+
+        if self.position_system:
+            for prop_name in local_props_gps:
+                col = layout.column()
+                row = col.row()
+                row.label(text=(LANGUAGE_PACK.get(context.scene.language)).get(prop_name))
+                row.prop(self, prop_name, text='')
+        else:
+            for prop_name in local_props_lps:
+                col = layout.column()
+                row = col.row()
+                row.label(text=(LANGUAGE_PACK.get(context.scene.language)).get(prop_name))
+                row.prop(self, prop_name, text='')
 
     def execute(self, context):
         scene = context.scene
@@ -158,7 +208,7 @@ class ExportLuaBinaries(Operator, ExportHelper):
             coords_array = list()
             colors_array = list()
             faults = False
-            for frame in range(scene.frame_start, scene.frame_enk + 1):
+            for frame in range(scene.frame_start, scene.frame_end + 1):
                 scene.frame_set(frame)
                 if frame % int(fps / context.scene.positionFreq) == 0:
                     x, y, z = pioneer.matrix_world.to_translation()
@@ -172,10 +222,22 @@ class ExportLuaBinaries(Operator, ExportHelper):
                         return {"CANCELLED"}
                     colors_array.append((r, g, b))
             if not faults:
+                if self.position_system:
+                    coords_array = self.prepare_to_gps(coords_array)
                 self.write_to_bin(pioneer_id, coords_array, colors_array, self.filepath)
             pioneer_id += 1
-        self.report({"INFO"}, (LANGUAGE_PACK.get(context.scene.language)).get("export_successed"))
+        self.report({"INFO"}, (LANGUAGE_PACK.get(context.scene.language)).get("export_succeed"))
         return {"FINISHED"}
+
+    def prepare_to_gps(self, positions_array):
+        gps_array = list()
+        # longitude - x (East)
+        # latitude - y (North)
+        for point in positions_array:
+            point_lon, point_lat, point_alt = pymap3d.enu.enu2geodetic(point[0], point[1], point[2],
+                                                                       self.lat_offset, self.lon_offset, 0)
+            gps_array.append([point_lat, point_lon, point_alt])
+        return gps_array
 
     @staticmethod
     def write_to_bin(droneNum, coords_array, colors_array, filepath):
@@ -343,7 +405,6 @@ class ChangeLanguage(Operator):
             bpy.utils.unregister_class(system_panel)
             system_panel.bl_label = (LANGUAGE_PACK.get(context.scene.language)).get(language_idname)
             bpy.utils.register_class(system_panel)
-
 
 
 class CheckForLimits(Operator):
