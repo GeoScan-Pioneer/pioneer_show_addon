@@ -7,7 +7,7 @@ import sys
 import glob
 import serial
 
-import multiprocessing
+import threading
 
 
 class SerialMaster:
@@ -22,7 +22,7 @@ class SerialMaster:
 
     auto_connect = None
     auto_port_detect = None
-    connected = multiprocessing.Value('b', False)
+    connected = False
     reconnect_callback = None
     disconnect_callback = None
     __is_working = None
@@ -32,10 +32,10 @@ class SerialMaster:
         self.disconnect_callback = disconnect_callback
         self.ports_update_callback = ports_update_callback
         self.auto_port_detect = auto_port_detect
-        self.__is_working = True
-        self.connected.value = False
 
-        self.port_handler_thread = multiprocessing.Process(target=self.__port_handler)
+        self.__is_working = True
+
+        self.port_handler_thread = threading.Thread(target=self.__port_handler)
         self.port_handler_thread.start()
 
     def set_serial(self, serial):
@@ -63,56 +63,50 @@ class SerialMaster:
             raise Exception('Failed to open port {}. Try another port and reconnect the droneNum'.format(serial))
 
     def __port_handler(self):
-        auto_connect_thread = multiprocessing.Process(target=self.__auto_connect)
         while self.__is_working:
             if self.ports:
                 _cached_ports = self.ports
                 self.ports = self.available_ports()
                 if _cached_ports != self.ports:  # and _cached_ports:
                     self.ports_update_callback()
-                    if len(_cached_ports) > len(self.ports) and self.connected.value:
+                    if len(_cached_ports) > len(self.ports) and self.connected:
                         for i in range(len(_cached_ports)):
                             if _cached_ports[i] not in self.ports:
                                 if self.serial == _cached_ports[i]:
                                     print("disconnected port {}".format(_cached_ports[i]))
-                                    auto_connect_thread.terminate()
-                                    auto_connect_thread = self.__create_process(self.__auto_connect, self.connected)
                                     self.close_serial()
                                     self.disconnect_callback()
                         if self.auto_port_detect and len(self.ports):
                             self.serial = self.ports[0]
-                            if auto_connect_thread.is_alive():
-                                auto_connect_thread.terminate()
-                            auto_connect_thread = self.__create_process(self.__auto_connect, self.connected)
+                            auto_connect_thread = self.__create_process(self.__auto_connect)
                             auto_connect_thread.start()
                     else:
-                        if not self.connected.value:
+                        if not self.connected:
                             if self.auto_port_detect and len(self.ports) > 0:
                                 if self.serial != self.ports[0]:
                                     self.serial = self.ports[0]
-                                    if auto_connect_thread.is_alive():
-                                        auto_connect_thread.terminate()
-                                    auto_connect_thread = self.__create_process(self.__auto_connect, self.connected)
+                                    auto_connect_thread = self.__create_process(self.__auto_connect)
                                     auto_connect_thread.start()
             else:
                 self.ports = self.available_ports()
                 if self.auto_port_detect:
                     if len(self.ports) > 0:
                         self.serial = self.ports[0]
-                        if auto_connect_thread.is_alive():
-                            auto_connect_thread.terminate()
-                        auto_connect_thread = self.__create_process(self.__auto_connect, self.connected)
+                        auto_connect_thread = self.__create_process(self.__auto_connect)
                         auto_connect_thread.start()
             time.sleep(0.25)
 
     @staticmethod
-    def __create_process(target, args):
-        return multiprocessing.Process(target=target, args=(args,))
+    def __create_process(target, args=None):
+        if args:
+            return threading.Thread(target=target, args=(args,))
+        else:
+            return threading.Thread(target=target)
 
-    def __auto_connect(self, connection_state):
+    def __auto_connect(self):
         print("run auto connect")
         time.sleep(0.5)
-        self.__make_connection(self.serial, connection_state)
+        self.__make_connection(self.serial)
 
     def connect_serial(self, serial):
         print("run manual connect")
@@ -120,23 +114,35 @@ class SerialMaster:
         if self.connected.value:
             if serial != self.serial:
                 self.close_serial()
-                self.__make_connection(serial, self.connected)
+                self.__make_connection(serial)
 
-    def __make_connection(self, serial, connection_state):
+    def __make_connection(self, serial):
         for baudrate in self.baudrate_list:
-            self.open_serial(serial, baudrate)
+            try:
+                self.open_serial(serial, baudrate)
+            except serial.SerialException:
+                break
             try:
                 if self.stream.socket.is_open:
                     self.baudrate = baudrate
                     connected = self.connect_messenger()
                     if connected:
                         print("Connected port {}".format(self.serial))
-                        connection_state.value = True
+                        self.connected = True
                         break
                     else:
                         self.stream.socket.close()
             except Exception:
                 pass
+
+    def reconnect_after_restart(self):
+        self.open_serial(self.serial, self.baudrate)
+        try:
+            self.connected = self.connect_messenger()
+            return
+        except Exception:
+            pass
+        self.__make_connection(self.serial)
 
     def connect_messenger(self):
         connected = False
@@ -152,7 +158,7 @@ class SerialMaster:
             return False
 
     def close_serial(self):
-        self.connected.value = False
+        self.connected = False
         if self.messenger:
             self.messenger.stop()
         try:
@@ -202,8 +208,16 @@ class Loader:
     connected = None
 
     def __init__(self, auto_port_detect: bool = True):
-        self.serial_master = SerialMaster(self.connect_callback, self.disconnect_callback, self.ports_update_callback,
+        self.serial_master = SerialMaster(self.connect_callback, self.disconnect_callback,
+                                          self.ports_update_callback,
                                           auto_port_detect=auto_port_detect)
+
+        self.sem = threading.Semaphore(1)
+
+    def acquire_sem(self, interval=1):
+        timer = threading.Timer(interval, lambda: self.sem.release())
+        timer.start()
+        self.sem.acquire()
 
     def connect_callback(self, stream, messenger, hub):
         self.stream = stream
@@ -218,6 +232,23 @@ class Loader:
 
     def ports_update_callback(self):
         print("ports updated")
+
+    def restart_board(self):
+        self.acquire_sem(1)
+
+        self.sem.acquire()
+
+        for key, value in proto.Protocol.SYSTEM_COMMANDS.items():
+            if value == 'Restart':
+                restart_command = key
+        self.messenger.resetProgress()
+        self.hub.sendCommand(restart_command, callback=self.restart_board_callback)
+        self.sem.release()
+        self.serial_master.reconnect_after_restart()
+
+    def restart_board_callback(self, code, result):
+        if result.value is not proto.Result.SUCCESS:
+            print("Restarted unsuccessfully")
 
     def get_ap_firmware_version(self):
         try:
@@ -252,5 +283,8 @@ class Loader:
 
 if __name__ == '__main__':
     showLoader = Loader()
+    time.sleep(2)
+    print("try to restart")
+    showLoader.restart_board()
     while True:
         time.sleep(1)
