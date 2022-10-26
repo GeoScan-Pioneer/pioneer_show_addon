@@ -2,12 +2,13 @@ import time
 
 import proto
 import os
-
+# TODO dynamic lib installation
 import sys
 import glob
 import serial
 
 import threading
+import struct
 
 
 class SerialMaster:
@@ -78,30 +79,30 @@ class SerialMaster:
                                     self.disconnect_callback()
                         if self.auto_port_detect and len(self.ports):
                             self.serial = self.ports[0]
-                            auto_connect_thread = self.__create_process(self.__auto_connect)
-                            auto_connect_thread.start()
+                            self.__create_thread(self.__auto_connect)
                     else:
                         if not self.connected:
                             if self.auto_port_detect and len(self.ports) > 0:
                                 if self.serial != self.ports[0]:
                                     self.serial = self.ports[0]
-                                    auto_connect_thread = self.__create_process(self.__auto_connect)
-                                    auto_connect_thread.start()
+                                    self.__create_thread(self.__auto_connect)
             else:
                 self.ports = self.available_ports()
                 if self.auto_port_detect:
                     if len(self.ports) > 0:
                         self.serial = self.ports[0]
-                        auto_connect_thread = self.__create_process(self.__auto_connect)
-                        auto_connect_thread.start()
+                        self.__create_thread(self.__auto_connect)
             time.sleep(0.25)
 
     @staticmethod
-    def __create_process(target, args=None):
+    def __create_thread(target, args=None, join: bool = False):
         if args:
-            return threading.Thread(target=target, args=(args,))
+            thread = threading.Thread(target=target, args=(args,))
         else:
-            return threading.Thread(target=target)
+            thread = threading.Thread(target=target)
+        thread.start()
+        if join:
+            thread.join()
 
     def __auto_connect(self):
         print("run auto connect")
@@ -219,6 +220,19 @@ class Loader:
         timer.start()
         self.sem.acquire()
 
+    def _check_bin(self, binary):
+        check_bytes = b'\xaa\xbb\xcc\xdd'
+        control_sequence = binary[:4]
+        if control_sequence != check_bytes:
+            return False
+        bin_file_version = bytes(binary[4:5])
+        bin_file_version = struct.unpack('<B', bin_file_version)[0]
+        ap_firmware_version = self.get_ap_firmware_version()
+        if (bin_file_version == 1 and ap_firmware_version > 8123) or \
+                (bin_file_version == 2 and ap_firmware_version < 8016):
+            return False
+        return True
+
     def connect_callback(self, stream, messenger, hub):
         self.stream = stream
         self.messenger = messenger
@@ -230,37 +244,55 @@ class Loader:
         print("Disconnected")
         self.connected = False
 
-    def ports_update_callback(self):
-        print("ports updated")
+    @staticmethod
+    def ports_update_callback():
+        print("Ports updated")
 
     def restart_board(self):
-        self.acquire_sem(1)
+        if self.connected:
+            self.acquire_sem(1)
+            self.sem.acquire()
+            for key, value in proto.Protocol.SYSTEM_COMMANDS.items():
+                if value == 'Restart':
+                    restart_command = key
+            self.messenger.resetProgress()
+            self.hub.sendCommand(restart_command, callback=self.restart_board_callback)
+            self.sem.release()
+            self.serial_master.reconnect_after_restart()
 
-        self.sem.acquire()
-
-        for key, value in proto.Protocol.SYSTEM_COMMANDS.items():
-            if value == 'Restart':
-                restart_command = key
-        self.messenger.resetProgress()
-        self.hub.sendCommand(restart_command, callback=self.restart_board_callback)
-        self.sem.release()
-        self.serial_master.reconnect_after_restart()
-
-    def restart_board_callback(self, code, result):
+    @staticmethod
+    def restart_board_callback(code, result):
         if result.value is not proto.Result.SUCCESS:
             print("Restarted unsuccessfully")
 
+    def set_param(self, name, value):
+        if self.connected:
+            try:
+                self.hub.setParam(value, name)
+            except Exception as e:
+                pass
+
+    def get_board_number(self):
+        if self.connected:
+            board_number = self.hub.getProtocolInfo()[2]
+            return board_number
+
+    # def test2(self):
+    #     self.hub.getParamList()
+    #     print(self.hub.parameters)
+
     def get_ap_firmware_version(self):
-        try:
-            for i in range(0, len(self.hub.components)):
-                if self.hub.components[i].name == 'UavMonitor' or self.hub.components[i].name == 'BaseMonitor':
-                    component_id = i
+        if self.connected:
+            try:
+                for i in range(0, len(self.hub.components)):
+                    if self.hub.components[i].name == 'UavMonitor' or self.hub.components[i].name == 'BaseMonitor':
+                        component_id = i
 
-            version = self.hub.components[component_id].swVersion[2]
-        except Exception:
-            raise Exception('Failed to get autopilot firmware version')
+                version = self.hub.components[component_id].swVersion[2]
+            except Exception:
+                raise Exception('Failed to get autopilot firmware version')
 
-        return version
+            return version
 
     def get_ports_list(self):
         return self.serial_master.ports
@@ -275,16 +307,41 @@ class Loader:
         pass
 
     def upload_lua_script(self, path):
-        pass
+        if self.connected:
+            lua = self.hub["LuaScript"]
+            if lua:
+                try:
+                    file = lua.files[0]
+                    file.writeImpl(data=path.read(), chunkSize=48, burstSize=4, append=False, verify=True)
+                except Exception:
+                    pass
 
-    def upload_bin(self, binary_file):
-        pass
+    def upload_bin(self, binary):
+        if self.connected:
+            lua = self.hub["LuaScript"]
+            if lua:
+                try:
+                    checked = self._check_bin(binary)
+                    if checked:
+                        print("Begin upload bin")
+                        file = lua.files[1]
+                        file.writeImpl(data=binary, chunkSize=48, burstSize=4, append=False, verify=True)
+                        print("Completed writing bin")
+                    else:
+                        raise
+                except Exception as e:
+                    print(e)
 
 
 if __name__ == '__main__':
     showLoader = Loader()
-    time.sleep(2)
-    print("try to restart")
+    while not showLoader.connected:
+        pass
+    showLoader.set_param(name="Board_number", value=9)
+    print(showLoader.get_board_number())
+    with open("blender/test_1.bin", "rb") as data:
+        showLoader.upload_bin(bytes(data.read()))
+    # print("try to restart")
     showLoader.restart_board()
-    while True:
-        time.sleep(1)
+    # while True:
+    #     time.sleep(1)
