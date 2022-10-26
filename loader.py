@@ -7,7 +7,6 @@ import sys
 import glob
 import serial
 
-import threading
 import multiprocessing
 
 
@@ -20,26 +19,24 @@ class SerialMaster:
     messenger = None
     stream = None
     hub = None
-    connected = None
 
     auto_connect = None
     auto_port_detect = None
+    connected = multiprocessing.Value('b', False)
     reconnect_callback = None
     disconnect_callback = None
     __is_working = None
 
-    def __init__(self, connect_callback, disconnect_callback, auto_connect: bool = True):
+    def __init__(self, connect_callback, disconnect_callback, ports_update_callback, auto_port_detect: bool = True):
         self.connect_callback = connect_callback
         self.disconnect_callback = disconnect_callback
-        self.auto_connect = auto_connect
-        self.auto_port_detect = auto_connect
+        self.ports_update_callback = ports_update_callback
+        self.auto_port_detect = auto_port_detect
         self.__is_working = True
+        self.connected.value = False
 
-        self.port_handler_thread = threading.Thread(target=self.port_handler)
+        self.port_handler_thread = multiprocessing.Process(target=self.__port_handler)
         self.port_handler_thread.start()
-
-        self.auto_connect_thread = multiprocessing.Process(target=self.__auto_connect)
-        # self.serial_handler_thread.start()
 
     def set_serial(self, serial):
         if not serial:
@@ -54,7 +51,7 @@ class SerialMaster:
     def set_baudrate_list(self, baudrate_list: list):
         if not baudrate_list:
             raise Exception('Baudrate list is empty')
-        self.baudrateList = baudrate_list
+        self.baudrate_list = baudrate_list
 
     def open_serial(self, serial, baudrate):
         self.close_serial()
@@ -65,70 +62,94 @@ class SerialMaster:
         except Exception:
             raise Exception('Failed to open port {}. Try another port and reconnect the droneNum'.format(serial))
 
-    def port_handler(self):
+    def __port_handler(self):
+        auto_connect_thread = multiprocessing.Process(target=self.__auto_connect)
         while self.__is_working:
             if self.ports:
                 _cached_ports = self.ports
                 self.ports = self.available_ports()
-                if _cached_ports != self.ports and _cached_ports:
-                    if len(_cached_ports) > len(self.ports) and self.connected:
+                if _cached_ports != self.ports:# and _cached_ports:
+                    self.ports_update_callback()
+                    if len(_cached_ports) > len(self.ports) and self.connected.value:
                         for i in range(len(_cached_ports)):
                             if _cached_ports[i] not in self.ports:
                                 if self.serial == _cached_ports[i]:
                                     print("disconnected port {}".format(_cached_ports[i]))
-                                    self.auto_connect_thread.terminate()
+                                    auto_connect_thread.terminate()
+                                    auto_connect_thread = self.__create_process(self.__auto_connect, self.connected)
                                     self.close_serial()
                                     self.disconnect_callback()
-                        if self.auto_port_detect:
+                        if self.auto_port_detect and len(self.ports):
                             self.serial = self.ports[0]
-                            print("need to connect {}".format(self.serial))
-                            self.auto_connect_thread.start()
+                            if auto_connect_thread.is_alive():
+                                auto_connect_thread.terminate()
+                            auto_connect_thread = self.__create_process(self.__auto_connect, self.connected)
+                            auto_connect_thread.start()
                     else:
-                        if not self.connected:
-                            if self.auto_port_detect:
+                        if not self.connected.value:
+                            if self.auto_port_detect and len(self.ports) > 0:
                                 if self.serial != self.ports[0]:
                                     self.serial = self.ports[0]
-                                    if self.auto_connect_thread.is_alive():
-                                        self.auto_connect_thread.terminate()
-                                    print("need to connect {}".format(self.serial))
-                                    self.auto_connect_thread.start()
+                                    if auto_connect_thread.is_alive():
+                                        auto_connect_thread.terminate()
+                                    auto_connect_thread = self.__create_process(self.__auto_connect, self.connected)
+                                    auto_connect_thread.start()
             else:
                 self.ports = self.available_ports()
                 if self.auto_port_detect:
                     if len(self.ports) > 0:
                         self.serial = self.ports[0]
-                        print("need to connect {}".format(self.serial))
-                        self.auto_connect_thread.start()
+                        if auto_connect_thread.is_alive():
+                            auto_connect_thread.terminate()
+                        auto_connect_thread = self.__create_process(self.__auto_connect, self.connected)
+                        auto_connect_thread.start()
+            time.sleep(0.25)
 
-    def __auto_connect(self):
+    @staticmethod
+    def __create_process(target, args):
+        return multiprocessing.Process(target=target, args=(args,))
+
+    def __auto_connect(self, connection_state):
         print("run auto connect")
-        print(self.auto_connect)
+        time.sleep(0.5)
+        self.__make_connection(self.serial, connection_state)
+
+    def connect_serial(self, serial):
+        print("run manual connect")
+        time.sleep(0.5)
+        if self.connected.value:
+            if serial != self.serial:
+                self.close_serial()
+                self.__make_connection(serial, self.connected)
+
+    def __make_connection(self, serial, connection_state):
         for baudrate in self.baudrate_list:
-            self.open_serial(self.serial, baudrate)
-            print(baudrate)
+            self.open_serial(serial, baudrate)
             try:
                 if self.stream.socket.is_open:
                     self.baudrate = baudrate
-                    self.connected = self.connect_messenger()
-                    if self.connected:
+                    connected = self.connect_messenger()
+                    if connected:
                         print("Connected port {}".format(self.serial))
-
+                        connection_state.value = True
                         break
-            except Exception as e:
+                    else:
+                        self.stream.socket.close()
+            except Exception:
                 pass
 
     def connect_messenger(self):
         connected = False
         for i in range(10):
             connected = self.hub.connect()
-            print(self.hub)
             if connected and self.hub['LuaScript'] is not None:
                 break
-        if not connected:
-            raise Exception('Connection failed')
-        else:
+        if connected:
             self.connect_callback(self.stream, self.messenger, self.hub)
             return True
+        else:
+            print('Connection failed')
+            return False
 
     def close_serial(self):
         self.connected = False
@@ -136,14 +157,13 @@ class SerialMaster:
             self.messenger.stop()
         try:
             self.stream.__del__()
-        except:
+        except Exception:
             pass
 
-    @staticmethod
-    def available_ports():
+    def available_ports(self):
         """ Lists serial port names
 
-            :raises EnvironmentError:
+            :raises: EnvironmentError:
                 On unsupported or unknown platforms
             :returns:
                 A list of the serial ports available on the system
@@ -160,12 +180,17 @@ class SerialMaster:
 
         result = []
         for port in ports:
+            if port == self.serial:
+                result.append(port)
+                continue
             try:
                 s = serial.Serial(port)
                 s.close()
-                result.append(port)
+                if "USB" in port or "ACM" in port or "COM" in port:
+                    result.append(port)
             except (OSError, serial.SerialException):
                 pass
+
         return result
 
 
@@ -176,8 +201,9 @@ class Loader:
 
     connected = None
 
-    def __init__(self, auto_connect: bool = True):
-        self.serial_master = SerialMaster(self.connect_callback, self.disconnect_callback, auto_connect=auto_connect)
+    def __init__(self, auto_port_detect: bool = True):
+        self.serial_master = SerialMaster(self.connect_callback, self.disconnect_callback, self.ports_update_callback,
+                                          auto_port_detect=auto_port_detect)
 
     def connect_callback(self, stream, messenger, hub):
         self.stream = stream
@@ -190,25 +216,41 @@ class Loader:
         print("Disconnected")
         self.connected = False
 
+    def ports_update_callback(self):
+        print("ports updated")
+
     def get_ap_firmware_version(self):
         try:
             for i in range(0, len(self.hub.components)):
                 if self.hub.components[i].name == 'UavMonitor' or self.hub.components[i].name == 'BaseMonitor':
-                    componentId = i
+                    component_id = i
 
-            version = self.hub.components[componentId].swVersion[2]
-        except:
+            version = self.hub.components[component_id].swVersion[2]
+        except Exception:
             raise Exception('Failed to get autopilot firmware version')
 
         return version
 
+    def get_ports_list(self):
+        return self.serial_master.ports
+
+    def change_port(self, port):
+        self.serial_master.connect_serial(port)
+
+    def upload_lps_params(self):
+        pass
+
+    def upload_gps_params(self):
+        pass
+
+    def upload_lua_script(self, path):
+        pass
+
+    def upload_bin(self, binary_file):
+        pass
+
 
 if __name__ == '__main__':
-    showLoader = Loader(False)
-    showLoader.serial_master.open_serial("/dev/ttyUSB0", 57600)
-    # print("Opened serial")
-    showLoader.serial_master.connect_messenger()
+    showLoader = Loader()
     while True:
         time.sleep(1)
-
-    # print(showLoader.getApFirmwareVersion())
