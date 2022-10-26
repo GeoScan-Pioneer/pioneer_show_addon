@@ -12,7 +12,7 @@ import multiprocessing
 
 class SerialMaster:
     baudrate = None
-    baudrate_list = [57600, 230400, 1000000, 2000000]
+    baudrate_list = [57600, 115200, 230400, 1000000, 2000000]
     serial = None
     ports = None
 
@@ -68,7 +68,7 @@ class SerialMaster:
             if self.ports:
                 _cached_ports = self.ports
                 self.ports = self.available_ports()
-                if _cached_ports != self.ports:# and _cached_ports:
+                if _cached_ports != self.ports:  # and _cached_ports:
                     self.ports_update_callback()
                     if len(_cached_ports) > len(self.ports) and self.connected.value:
                         for i in range(len(_cached_ports)):
@@ -152,7 +152,7 @@ class SerialMaster:
             return False
 
     def close_serial(self):
-        self.connected = False
+        self.connected.value = False
         if self.messenger:
             self.messenger.stop()
         try:
