@@ -1,14 +1,19 @@
 import time
-
-import proto
-import os
-# TODO dynamic lib installation
-import sys
-import glob
-import serial
-
 import threading
 import struct
+import os
+import sys
+import glob
+try:
+    import serial
+except ModuleNotFoundError:
+    import subprocess
+    py_exec = str(sys.executable)
+    subprocess.call([py_exec, "-m", "ensurepip", "--user"])
+    subprocess.call([py_exec, "-m", "pip", "install", "--upgrade", "pip"])
+    subprocess.call([py_exec, "-m", "pip", "install", "pyserial"])
+    import serial
+import proto
 
 
 class SerialMaster:
@@ -27,6 +32,16 @@ class SerialMaster:
     reconnect_callback = None
     disconnect_callback = None
     __is_working = None
+
+    class Thread(threading.Thread):
+        def __init__(self, run):
+            threading.Thread.__init__(self)
+            self.test = True
+            self.run = run
+
+        def kill(self):
+            self._tstate_lock.release()
+            self._stop()
 
     def __init__(self, connect_callback, disconnect_callback, ports_update_callback, auto_port_detect: bool = True):
         self.connect_callback = connect_callback
@@ -64,6 +79,7 @@ class SerialMaster:
             raise Exception('Failed to open port {}. Try another port and reconnect the droneNum'.format(serial))
 
     def __port_handler(self):
+        connection_thread = None
         while self.__is_working:
             if self.ports:
                 _cached_ports = self.ports
@@ -79,30 +95,33 @@ class SerialMaster:
                                     self.disconnect_callback()
                         if self.auto_port_detect and len(self.ports):
                             self.serial = self.ports[0]
+                            if connection_thread and connection_thread.is_alive():
+                                connection_thread.kill()
                             self.__create_thread(self.__auto_connect)
                     else:
                         if not self.connected:
                             if self.auto_port_detect and len(self.ports) > 0:
                                 if self.serial != self.ports[0]:
                                     self.serial = self.ports[0]
+                                    if connection_thread and connection_thread.is_alive():
+                                        connection_thread.kill()
                                     self.__create_thread(self.__auto_connect)
             else:
                 self.ports = self.available_ports()
                 if self.auto_port_detect:
                     if len(self.ports) > 0:
                         self.serial = self.ports[0]
+                        if connection_thread and connection_thread.is_alive():
+                            connection_thread.kill()
                         self.__create_thread(self.__auto_connect)
             time.sleep(0.25)
 
-    @staticmethod
-    def __create_thread(target, args=None, join: bool = False):
-        if args:
-            thread = threading.Thread(target=target, args=(args,))
-        else:
-            thread = threading.Thread(target=target)
+    def __create_thread(self, target, args=None, join: bool = False):
+        thread = self.Thread(target)
         thread.start()
         if join:
             thread.join()
+        return thread
 
     def __auto_connect(self):
         print("run auto connect")
