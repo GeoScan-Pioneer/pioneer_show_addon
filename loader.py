@@ -4,10 +4,12 @@ import struct
 import os
 import sys
 import glob
+
 try:
     import serial
 except ModuleNotFoundError:
     import subprocess
+
     py_exec = str(sys.executable)
     subprocess.call([py_exec, "-m", "ensurepip", "--user"])
     subprocess.call([py_exec, "-m", "pip", "install", "--upgrade", "pip"])
@@ -384,18 +386,3 @@ class Loader:
                         raise
                 except Exception as e:
                     print(e)
-
-
-if __name__ == '__main__':
-    showLoader = Loader()
-    while not showLoader.connected:
-        pass
-    showLoader.set_param(name="Board_number", value=9)
-    print(showLoader.get_board_number())
-    # with open("blender/test_1.bin", "rb") as data:
-    #     showLoader.upload_bin(bytes(data.read()))
-    # print("try to restart")
-    # showLoader.restart_board()
-    showLoader.upload_gps_params()
-    # while True:
-    #     time.sleep(1)
