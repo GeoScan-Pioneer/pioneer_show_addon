@@ -320,12 +320,46 @@ class Loader:
         self.serial_master.connect_serial(port)
 
     def upload_lps_params(self):
-        pass
+        params_to_change = {"BoardPioneer_module_gnss": 0,
+                            "BoardPioneer_module_ultrasonic": 1,
+                            "Copter_pos_vMax": 0.8,
+                            "Copter_pos_vDesc": 0.5,
+                            "Copter_pos_vDown": 0.5,
+                            "Copter_pos_vTakeoff": 1,
+                            "Copter_pos_vUp": 0.5,
+                            "Flight_com_takeoffAlt": 1,
+                            "Flight_com_navSystem": 1
+                            }
+        for param in params_to_change.keys():
+            self.set_param(name=param, value=params_to_change.get(param))
 
     def upload_gps_params(self):
-        pass
+        params_to_change = {"BoardPioneer_module_gnss": 1,
+                            "BoardPioneer_module_ultrasonic": 0,
+                            "Copter_pos_vMax": 1.5,
+                            "Copter_pos_vDesc": 2,
+                            "Copter_pos_vDown": 4,
+                            "Copter_pos_vTakeoff": 1.5,
+                            "Copter_pos_vUp": 4,
+                            "Flight_com_takeoffAlt": 7,
+                            "Flight_com_navSystem": 0
+                            }
+        fields_to_change = {}
+        for param in params_to_change.keys():
+            self.set_param(name=param, value=params_to_change.get(param))
+
+        Ublox = self.hub["Ublox"]
+        for (_, field) in Ublox.fields.items():
+            if field.name in fields_to_change.keys():
+                field.write(fields_to_change.get(field.name), self.field_written_callback)
+
+    @staticmethod
+    def field_written_callback(_, result, value):
+        if result.value is not proto.Result.SUCCESS:
+            print("Field written unsuccessfully")
 
     def upload_lua_script(self, path):
+        return
         if self.connected:
             lua = self.hub["LuaScript"]
             if lua:
@@ -358,9 +392,10 @@ if __name__ == '__main__':
         pass
     showLoader.set_param(name="Board_number", value=9)
     print(showLoader.get_board_number())
-    with open("blender/test_1.bin", "rb") as data:
-        showLoader.upload_bin(bytes(data.read()))
+    # with open("blender/test_1.bin", "rb") as data:
+    #     showLoader.upload_bin(bytes(data.read()))
     # print("try to restart")
-    showLoader.restart_board()
+    # showLoader.restart_board()
+    showLoader.upload_gps_params()
     # while True:
     #     time.sleep(1)
