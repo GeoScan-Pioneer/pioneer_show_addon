@@ -15,7 +15,6 @@ bl_info = {
     "warning": "",
     "category": "GeoScan"
 }
-loader = Loader()
 
 CONFIG_PROPS = [
     ("using_name_filter", BoolProperty(name="Use name filter for drones",
@@ -32,6 +31,23 @@ CONFIG_PROPS = [
 CONFIG_PROPS_NAV = [
     ("position_system", BoolProperty(name="Use GPS/LPS",
                                      default=False)),
+    ("x_offset", FloatProperty(name="Limit of  speed (m/s)",
+                               default=0)),
+    ("y_offset", FloatProperty(name="Limit of  speed (m/s)",
+                               default=0)),
+    ("z_offset", FloatProperty(name="Limit of  speed (m/s)",
+                               default=0)),
+    ("lon_offset", FloatProperty(name="Limit of  speed (m/s)",
+                                 default=30.347196)),
+    ("lat_offset", FloatProperty(name="Limit of  speed (m/s)",
+                                 default=60.010663)),
+]
+
+PIONEER_PROPS = [
+    ("board_number", IntProperty(name="Board_number",
+                                 default=1)),
+    # ("available_ports", EnumProperty(items=[], name="Available ports",
+    #                                  default=[])),
 ]
 
 SYSTEM_PROPS_PUBLIC = [
@@ -72,8 +88,9 @@ LANGUAGE_PACK_ENGLISH = {
     "distance_underestimated_error": "Distance less than minimums on frame %d on drones  %s & %s",
     "miss_color_error": "No color found on %s on frame %d",
     "export_succeed": "GeoScan show is better than urs!",
-    "SystemProperties": "GeoScan system properties",
+    "SystemProperties": "GeoScan System properties",
     "ConfigProperties": "GeoScan Show",
+    "ConnectionPanel": "GeoScan Pioneer connection",
     "ChangeLanguage": "Сменить язык",
 }
 
@@ -102,8 +119,9 @@ LANGUAGE_PACK_RUSSIAN = {
     "distance_underestimated_error": "Расстояние меньше минимального на кадре %d между дронами  %s и %s",
     "miss_color_error": "Не найден цвет у %s на кадре %d",
     "export_succeed": "GeoScan шоу успешно создано",
-    "SystemProperties": "GeoScan системные параметры",
+    "SystemProperties": "GeoScan Системные параметры",
     "ConfigProperties": "GeoScan Шоу",
+    "ConnectionPanel": "GeoScan Подключение к дрону",
     "ChangeLanguage": "Change language",
 }
 
@@ -117,51 +135,17 @@ class ExportLuaBinaries(Operator, ExportHelper):
     bl_idname = "show.export_lua_binaries"
     bl_label = "Export LUA binaries for drones"
     filename_ext = ''
-
-    x_offset: FloatProperty(
-        name="X_offset",
-        description="X coordinate offset",
-        default=0,
-        step=0.5,
-    )
-    y_offset: FloatProperty(
-        name="Y offset",
-        description="Y coordinate offset",
-        default=0,
-        step=0.5,
-    )
-    z_offset: FloatProperty(
-        name="Z offset",
-        description="Z coordinate offset",
-        default=0,
-        step=0.5,
-    )
-    lon_offset: FloatProperty(
-        name="Longitude offset",
-        description="Longitude coordinate offset",
-        default=30.347196,
-    )
-    lat_offset: FloatProperty(
-        name="Latitude offset",
-        description="Latitude coordinate offset",
-        default=60.010663,
-    )
-    board_number: IntProperty(
-        name="Board_number",
-        description="Board number",
-        default=1,
-    )
-    available_ports: EnumProperty(
-        items=[],
-        name="Available ports",
-        default=loader.get_ports_list(),
-    )
     filepath: StringProperty(
         name="File Path",
         description="File path used for exporting csv files",
         maxlen=1024,
         subtype='DIR_PATH',
         default=""
+    )
+    available_ports: EnumProperty(
+        items=[],
+        name="Available ports",
+        default=[]
     )
 
     def draw(self, context):
@@ -170,12 +154,12 @@ class ExportLuaBinaries(Operator, ExportHelper):
                         "positionFreq",
                         "colorFreq", ]
 
-        local_props_lps = ["x_offset",
-                           "y_offset",
-                           "z_offset", ]
+        props_lps = ["x_offset",
+                     "y_offset",
+                     "z_offset", ]
 
-        local_props_gps = ["lon_offset",
-                           "lat_offset", ]
+        props_gps = ["lon_offset",
+                     "lat_offset", ]
 
         layout = self.layout
         for prop_name in global_props:
@@ -193,26 +177,21 @@ class ExportLuaBinaries(Operator, ExportHelper):
         row.prop(context.scene, "position_system", text='')
 
         if context.scene.position_system:
-            for prop_name in local_props_gps:
+            for prop_name in props_gps:
                 col = layout.column()
                 row = col.row()
                 row.label(text=(LANGUAGE_PACK.get(context.scene.language)).get(prop_name))
-                row.prop(self, prop_name, text='')
+                row.prop(context.scene, prop_name, text='')
         else:
-            for prop_name in local_props_lps:
+            for prop_name in props_lps:
                 col = layout.column()
                 row = col.row()
                 row.label(text=(LANGUAGE_PACK.get(context.scene.language)).get(prop_name))
-                row.prop(self, prop_name, text='')
+                row.prop(context.scene, prop_name, text='')
 
         col = layout.column()
         row = col.row()
-        row.label(text=(LANGUAGE_PACK.get(context.scene.language)).get("board_number"))
-        row.prop(self, "board_number", text='')
-        row = col.row()
-        # self.available_ports.items = loader.get_ports_list()
         row.prop(self, "available_ports", text='')
-        row.operator(ConnectPioneer.bl_idname, text=(LANGUAGE_PACK.get(context.scene.language)).get("ConnectPioneer"))
 
     def execute(self, context):
         scene = context.scene
@@ -286,81 +265,216 @@ class ExportLuaBinaries(Operator, ExportHelper):
             "AltOrigin": 0,  # not used == 0
         }
         outBinPath = ''.join([filepath, '_', str(droneNum), '.bin'])
-        print(outBinPath)
         coords_size = len(coords_array)
-        if to_file:
-            with open(outBinPath, "wb") as f:
-                # Control sequence
-                f.write(b'\xaa\xbb\xcc\xdd')
-                f.write(struct.pack(HeaderFormat, meta_data['Version'],
-                                    meta_data['AnimationId'],
-                                    meta_data['PreFlightColor'],
-                                    meta_data['UserColorRed'],
-                                    meta_data['UserColorGreen'],
-                                    meta_data['UserColorBlue'],
-                                    meta_data['FreqPositions'],
-                                    meta_data['FreqColors'],
-                                    meta_data['FormatPositions'],
-                                    meta_data['FormatColors'],
-                                    meta_data['NumberPositions'],
-                                    meta_data['NumberColors'],
-                                    meta_data['TimeStart'],
-                                    meta_data['TimeEnd'],
-                                    meta_data['LatOrigin'],
-                                    meta_data['LonOrigin'],
-                                    meta_data['AltOrigin']))
-                # Points data starts at offset of 100 bytes
-                for i in range(size + 4, 100):
-                    f.write(b'\x00')
-                # Write points
-                for point in coords_array:
-                    f.write(struct.pack('<fff', point[0], point[1], point[2]))
-
-                # Colors data starts at offset of 43300 bytes
-                if coords_size < 3600:
-                    for _ in range(coords_size, 3600):
-                        f.write(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00')
-                # Write colors
-                for color in colors_array:
-                    f.write(struct.pack('<BBB', int(color[0] * 255), int(color[1] * 255), int(color[2] * 255)))
-
-                f.close()
-        else:
-            binary = b''
-            binary += b'\xaa\xbb\xcc\xdd'
-            binary += (struct.pack(HeaderFormat, meta_data['Version'],
-                                   meta_data['AnimationId'],
-                                   meta_data['PreFlightColor'],
-                                   meta_data['UserColorRed'],
-                                   meta_data['UserColorGreen'],
-                                   meta_data['UserColorBlue'],
-                                   meta_data['FreqPositions'],
-                                   meta_data['FreqColors'],
-                                   meta_data['FormatPositions'],
-                                   meta_data['FormatColors'],
-                                   meta_data['NumberPositions'],
-                                   meta_data['NumberColors'],
-                                   meta_data['TimeStart'],
-                                   meta_data['TimeEnd'],
-                                   meta_data['LatOrigin'],
-                                   meta_data['LonOrigin'],
-                                   meta_data['AltOrigin']))
+        with open(outBinPath, "wb") as f:
+            # Control sequence
+            f.write(b'\xaa\xbb\xcc\xdd')
+            f.write(struct.pack(HeaderFormat, meta_data['Version'],
+                                meta_data['AnimationId'],
+                                meta_data['PreFlightColor'],
+                                meta_data['UserColorRed'],
+                                meta_data['UserColorGreen'],
+                                meta_data['UserColorBlue'],
+                                meta_data['FreqPositions'],
+                                meta_data['FreqColors'],
+                                meta_data['FormatPositions'],
+                                meta_data['FormatColors'],
+                                meta_data['NumberPositions'],
+                                meta_data['NumberColors'],
+                                meta_data['TimeStart'],
+                                meta_data['TimeEnd'],
+                                meta_data['LatOrigin'],
+                                meta_data['LonOrigin'],
+                                meta_data['AltOrigin']))
             # Points data starts at offset of 100 bytes
             for i in range(size + 4, 100):
-                binary += b'\x00'
+                f.write(b'\x00')
             # Write points
             for point in coords_array:
-                binary += struct.pack('<fff', point[0], point[1], point[2])
+                f.write(struct.pack('<fff', point[0], point[1], point[2]))
 
             # Colors data starts at offset of 43300 bytes
             if coords_size < 3600:
                 for _ in range(coords_size, 3600):
-                    binary += b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+                    f.write(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00')
             # Write colors
             for color in colors_array:
-                binary += struct.pack('<BBB', int(color[0] * 255), int(color[1] * 255), int(color[2] * 255))
+                f.write(struct.pack('<BBB', int(color[0] * 255), int(color[1] * 255), int(color[2] * 255)))
 
-            return binary
+            f.close()
+
+    @staticmethod
+    def write_to_bin_old(droneNum, coords_array, colors_array, filepath, origin):
+        headerFormat = "<BBBBBBHHfffff"
+        size = struct.calcsize(headerFormat)
+        meta_data = {
+            # if -1 == should be calculated
+            "Version": 1,
+            "AnimationId": 0,
+            "FreqPositions": bpy.context.scene.positionFreq,
+            "FreqColors": bpy.context.scene.colorFreq,
+            "FormatPositions": struct.calcsize('f'),
+            "FormatColors": struct.calcsize('B'),
+            "NumberPositions": len(coords_array),
+            "NumberColors": len(colors_array),
+            "TimeStart": 0,
+            "TimeEnd": round(len(coords_array) / bpy.context.scene.positionFreq, 2),
+            "LatOrigin": origin[0],
+            "LonOrigin": origin[1],
+            "AltOrigin": 0,  # not used == 0
+        }
+
+        coords_size = len(coords_array)
+        outBinPath = ''.join([filepath, '_', str(droneNum - 1), '_old.bin'])
+        with open(outBinPath, "wb") as f:
+            # Control sequence
+            f.write(b'\xaa\xbb\xcc\xdd')
+            f.write(struct.pack(headerFormat, meta_data['Version'],
+                                meta_data['AnimationId'],
+                                meta_data['FreqPositions'],
+                                meta_data['FreqColors'],
+                                meta_data['FormatPositions'],
+                                meta_data['FormatColors'],
+                                meta_data['NumberPositions'],
+                                meta_data['NumberColors'],
+                                meta_data['TimeStart'],
+                                meta_data['TimeEnd'],
+                                meta_data['LatOrigin'],
+                                meta_data['LonOrigin'],
+                                meta_data['AltOrigin']))
+            # Points data starts at offset of 100 bytes
+            for i in range(size + 4, 100):
+                f.write(b'\x00')
+            # Write points
+            for point in coords_array:
+                f.write(struct.pack('<fff', point[0], point[1], point[2]))
+
+            # Colors data starts at offset of 21700 bytes
+            if coords_size < 1800:
+                for _ in range(coords_size, 1800):
+                    f.write(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00')
+            # Write colors
+            for color in colors_array:
+                f.write(struct.pack('<BBB', int(color[0] * 255), int(color[1] * 255), int(color[2] * 255)))
+
+            f.close()
+
+
+class ConnectPioneer(Operator):
+    bl_idname = "show.connect_pioneer"
+    bl_label = "Подключить пионер"
+
+    def execute(self, context):
+        self.report({"INFO"}, "sdfsd")
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+        wm = context.window_manager
+        # wm.invoke_props_dialog(self, width=400)
+        wm.invoke_popup(self, width=400)
+        return {'RUNNING_MODAL'}
+
+    def draw(self, context):
+        self.layout.label(text="self.message")
+        self.layout.prop(context.scene, "drones_name", text="asd")
+
+
+class UploadNavSystemParams(Operator):
+    bl_idname = "show.upload_navsystem_params"
+    bl_label = "Обновить параметры под систему навигации"
+
+    def execute(self, context):
+        return {"FINISHED"}
+
+
+class UploadFilesToPioneer(Operator):
+    bl_idname = "show.upload_files_to_pionner"
+    bl_label = "Загрузить файлы на пионер"
+
+    def execute(self, context):
+        scene = context.scene
+        return {"FINISHED"}
+
+    def prepare_export_arrays(self, pioneer, scene):
+        coords_array = list()
+        colors_array = list()
+        faults = False
+        for frame in range(scene.frame_start, scene.frame_end + 1):
+            scene.frame_set(frame)
+            if frame % int(scene.render.fps / scene.positionFreq) == 0:
+                x, y, z = pioneer.matrix_world.to_translation()
+                coords_array.append((x + self.x_offset * (not self.position_system),
+                                     y + self.y_offset * (not self.position_system), z + self.z_offset) * (
+                                        not self.position_system))
+            if frame % int(scene.render.fps / scene.colorFreq) == 0:
+                r, g, b, _ = pioneer.active_material.diffuse_color
+                if r is None:
+                    faults = True
+                    self.report({"ERROR"}, (LANGUAGE_PACK.get(scene.language)).get("missed_color_error")
+                                % (pioneer.name, frame))
+                colors_array.append((r, g, b))
+        return coords_array, colors_array, faults
+
+    @staticmethod
+    def write_to_bin(droneNum, coords_array, colors_array, filepath, origin, to_file: bool = True):
+        HeaderFormat = '<BLBBBBBBBBHHfffff'
+        size = struct.calcsize(HeaderFormat)
+        meta_data = {
+            # if -1 == should be calculated
+            "Version": 2,
+            "AnimationId": 1,
+            "PreFlightColor": 249,
+            "UserColorRed": 0,
+            "UserColorGreen": 0,
+            "UserColorBlue": 0,
+            "FreqPositions": bpy.context.scene.positionFreq,
+            "FreqColors": bpy.context.scene.colorFreq,
+            "FormatPositions": struct.calcsize('f'),
+            "FormatColors": struct.calcsize('B'),
+            "NumberPositions": len(coords_array),
+            "NumberColors": len(colors_array),
+            "TimeStart": 0,
+            "TimeEnd": round(len(coords_array) / bpy.context.scene.positionFreq, 2),
+            "LatOrigin": origin[0],
+            "LonOrigin": origin[1],
+            "AltOrigin": 0,  # not used == 0
+        }
+        coords_size = len(coords_array)
+        binary = b''
+        binary += b'\xaa\xbb\xcc\xdd'
+        binary += (struct.pack(HeaderFormat, meta_data['Version'],
+                               meta_data['AnimationId'],
+                               meta_data['PreFlightColor'],
+                               meta_data['UserColorRed'],
+                               meta_data['UserColorGreen'],
+                               meta_data['UserColorBlue'],
+                               meta_data['FreqPositions'],
+                               meta_data['FreqColors'],
+                               meta_data['FormatPositions'],
+                               meta_data['FormatColors'],
+                               meta_data['NumberPositions'],
+                               meta_data['NumberColors'],
+                               meta_data['TimeStart'],
+                               meta_data['TimeEnd'],
+                               meta_data['LatOrigin'],
+                               meta_data['LonOrigin'],
+                               meta_data['AltOrigin']))
+        # Points data starts at offset of 100 bytes
+        for i in range(size + 4, 100):
+            binary += b'\x00'
+        # Write points
+        for point in coords_array:
+            binary += struct.pack('<fff', point[0], point[1], point[2])
+
+        # Colors data starts at offset of 43300 bytes
+        if coords_size < 3600:
+            for _ in range(coords_size, 3600):
+                binary += b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+        # Write colors
+        for color in colors_array:
+            binary += struct.pack('<BBB', int(color[0] * 255), int(color[1] * 255), int(color[2] * 255))
+
+        return binary
 
     @staticmethod
     def write_to_bin_old(droneNum, coords_array, colors_array, filepath, origin, to_file: bool = True):
@@ -382,98 +496,38 @@ class ExportLuaBinaries(Operator, ExportHelper):
             "LonOrigin": origin[1],
             "AltOrigin": 0,  # not used == 0
         }
-
-        outBinPath = ''.join([filepath, '_', str(droneNum - 1), '_old.bin'])
         coords_size = len(coords_array)
-        if to_file:
-            with open(outBinPath, "wb") as f:
-                # Control sequence
-                f.write(b'\xaa\xbb\xcc\xdd')
-                f.write(struct.pack(headerFormat, meta_data['Version'],
-                                    meta_data['AnimationId'],
-                                    meta_data['FreqPositions'],
-                                    meta_data['FreqColors'],
-                                    meta_data['FormatPositions'],
-                                    meta_data['FormatColors'],
-                                    meta_data['NumberPositions'],
-                                    meta_data['NumberColors'],
-                                    meta_data['TimeStart'],
-                                    meta_data['TimeEnd'],
-                                    meta_data['LatOrigin'],
-                                    meta_data['LonOrigin'],
-                                    meta_data['AltOrigin']))
-                # Points data starts at offset of 100 bytes
-                for i in range(size + 4, 100):
-                    f.write(b'\x00')
-                # Write points
-                for point in coords_array:
-                    f.write(struct.pack('<fff', point[0], point[1], point[2]))
+        binary = b''
+        binary += b'\xaa\xbb\xcc\xdd'
+        binary += struct.pack(headerFormat, meta_data['Version'],
+                              meta_data['AnimationId'],
+                              meta_data['FreqPositions'],
+                              meta_data['FreqColors'],
+                              meta_data['FormatPositions'],
+                              meta_data['FormatColors'],
+                              meta_data['NumberPositions'],
+                              meta_data['NumberColors'],
+                              meta_data['TimeStart'],
+                              meta_data['TimeEnd'],
+                              meta_data['LatOrigin'],
+                              meta_data['LonOrigin'],
+                              meta_data['AltOrigin'])
+        # Points data starts at offset of 100 bytes
+        for i in range(size + 4, 100):
+            binary += b'\x00'
+        # Write points
+        for point in coords_array:
+            binary += struct.pack('<fff', point[0], point[1], point[2])
 
-                # Colors data starts at offset of 21700 bytes
-                if coords_size < 1800:
-                    for _ in range(coords_size, 1800):
-                        f.write(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00')
-                # Write colors
-                for color in colors_array:
-                    f.write(struct.pack('<BBB', int(color[0] * 255), int(color[1] * 255), int(color[2] * 255)))
+        # Colors data starts at offset of 21700 bytes
+        if coords_size < 1800:
+            for _ in range(coords_size, 1800):
+                binary += b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+        # Write colors
+        for color in colors_array:
+            binary += struct.pack('<BBB', int(color[0] * 255), int(color[1] * 255), int(color[2] * 255))
 
-                f.close()
-        else:
-            binary = b''
-            binary += b'\xaa\xbb\xcc\xdd'
-            binary += struct.pack(headerFormat, meta_data['Version'],
-                                  meta_data['AnimationId'],
-                                  meta_data['FreqPositions'],
-                                  meta_data['FreqColors'],
-                                  meta_data['FormatPositions'],
-                                  meta_data['FormatColors'],
-                                  meta_data['NumberPositions'],
-                                  meta_data['NumberColors'],
-                                  meta_data['TimeStart'],
-                                  meta_data['TimeEnd'],
-                                  meta_data['LatOrigin'],
-                                  meta_data['LonOrigin'],
-                                  meta_data['AltOrigin'])
-            # Points data starts at offset of 100 bytes
-            for i in range(size + 4, 100):
-                binary += b'\x00'
-            # Write points
-            for point in coords_array:
-                binary += struct.pack('<fff', point[0], point[1], point[2])
-
-            # Colors data starts at offset of 21700 bytes
-            if coords_size < 1800:
-                for _ in range(coords_size, 1800):
-                    binary += b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
-            # Write colors
-            for color in colors_array:
-                binary += struct.pack('<BBB', int(color[0] * 255), int(color[1] * 255), int(color[2] * 255))
-
-            return binary
-
-
-class ConnectPioneer(Operator):
-    bl_idname = "show.connect_pioneer"
-    bl_label = "Подключить пионер"
-
-    def execute(self, context):
-        return {"FINISHED"}
-
-
-class UploadNavSystemParams(Operator):
-    bl_idname = "show.upload_navsystem_params"
-    bl_label = "Обновить параметры под систему навигации"
-
-    def execute(self, context):
-        return {"FINISHED"}
-
-
-class UploadFilesToPioneer(Operator):
-    bl_idname = "show.upload_files_to_pionner"
-    bl_label = "Загрузить файлы на пионер"
-
-    def execute(self, context):
-        return {"FINISHED"}
+        return binary
 
 
 class ConfigurePanel(Panel):
@@ -508,6 +562,62 @@ class SystemPanel(Panel):
                      text=(LANGUAGE_PACK.get(context.scene.language)).get("ChangeLanguage"))
 
 
+class ConnectionPanel(Panel):
+    bl_idname = 'VIEW3D_PT_geoscan_connection_panel'
+    bl_label = 'GeoScan Pioneer connection'
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "GeoScan"
+
+    # loader = Loader()
+
+    def draw(self, context):
+        props_lps = ["x_offset",
+                     "y_offset",
+                     "z_offset", ]
+
+        props_gps = ["lon_offset",
+                     "lat_offset", ]
+
+        layout = self.layout
+        scene = context.scene
+        col = layout.column()
+        row = col.row()
+        if scene.position_system:
+            row.label(text=(LANGUAGE_PACK.get(context.scene.language)).get("position_system_true"))
+        else:
+            row.label(text=(LANGUAGE_PACK.get(context.scene.language)).get("position_system_false"))
+        row.prop(scene, "position_system", text='')
+
+        if context.scene.position_system:
+            for prop_name in props_gps:
+                col = layout.column()
+                row = col.row()
+                row.label(text=(LANGUAGE_PACK.get(context.scene.language)).get(prop_name))
+                row.prop(scene, prop_name, text='')
+        else:
+            for prop_name in props_lps:
+                col = layout.column()
+                row = col.row()
+                row.label(text=(LANGUAGE_PACK.get(context.scene.language)).get(prop_name))
+                row.prop(scene, prop_name, text='')
+
+        col = layout.column()
+        row = col.row()
+        row.label(text=(LANGUAGE_PACK.get(context.scene.language)).get("board_number"))
+        row.prop(scene, "board_number", text='')
+
+        row = col.row()
+        row.prop(scene, "available_ports", text='')
+        row.operator(ConnectPioneer.bl_idname, text=(LANGUAGE_PACK.get(context.scene.language)).get("ConnectPioneer"))
+
+        row = col.row()
+        row.operator(UploadNavSystemParams.bl_idname,
+                     text=(LANGUAGE_PACK.get(context.scene.language)).get("UploadNavSystemParams"))
+        row.operator(UploadFilesToPioneer.bl_idname,
+                     text=(LANGUAGE_PACK.get(context.scene.language)).get("UploadFilesToPioneer"))
+
+
 class ChangeLanguage(Operator):
     bl_idname = "show.change_language"
     bl_label = "Сменить язык"
@@ -516,6 +626,7 @@ class ChangeLanguage(Operator):
         context.scene.language = not context.scene.language
         self.change_label(context, "VIEW3D_PT_geoscan_config_panel", "ConfigProperties")
         self.change_label(context, "VIEW3D_PT_geoscan_system_panel", "SystemProperties")
+        self.change_label(context, "VIEW3D_PT_geoscan_connection_panel", "ConnectionPanel")
         return {"FINISHED"}
 
     @staticmethod
@@ -637,6 +748,7 @@ classes.append(TOPBAR_MT_geoscan_menu)
 classes.append(ExportLuaBinaries)
 classes.append(ConfigurePanel)
 classes.append(SystemPanel)
+classes.append(ConnectionPanel)
 classes.append(CheckForLimits)
 classes.append(ChangeLanguage)
 classes.append(ConnectPioneer)
@@ -653,6 +765,9 @@ def register():
         setattr(bpy.types.Scene, prop_name, prop_value)
 
     for (prop_name, prop_value) in CONFIG_PROPS_NAV:
+        setattr(bpy.types.Scene, prop_name, prop_value)
+
+    for (prop_name, prop_value) in PIONEER_PROPS:
         setattr(bpy.types.Scene, prop_name, prop_value)
 
     for (prop_name, prop_value) in SYSTEM_PROPS_PUBLIC:
@@ -676,6 +791,9 @@ def unregister():
         delattr(bpy.types.Scene, prop_name)
 
     for (prop_name, _) in CONFIG_PROPS_NAV:
+        delattr(bpy.types.Scene, prop_name)
+
+    for (prop_name, _) in PIONEER_PROPS:
         delattr(bpy.types.Scene, prop_name)
 
     for (prop_name, _) in SYSTEM_PROPS_PUBLIC:

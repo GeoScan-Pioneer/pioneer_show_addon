@@ -53,7 +53,7 @@ class SerialMaster:
 
         self.__is_working = True
 
-        self.port_handler_thread = threading.Thread(target=self.__port_handler)
+        self.port_handler_thread = self.Thread(self.__port_handler)
         self.port_handler_thread.start()
 
     def set_serial(self, serial):
