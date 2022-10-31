@@ -134,7 +134,7 @@ class SerialMaster:
         print("run manual connect")
         time.sleep(0.5)
         self.auto_port_detect = False
-        if self.connected.value:
+        if self.connected:
             if serial != self.serial:
                 self.close_serial()
                 self.__make_connection(serial)

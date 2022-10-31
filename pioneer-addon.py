@@ -400,9 +400,8 @@ class ConnectPioneer(Operator):
         if self.loader:
             self.loader.disable_auto_connect()
             context.scene.auto_connection = False
-            # self.loader.change_port(port)
-            self.report({"INFO"}, str(self.loader.get_ap_firmware_version()))
-            self.report({"INFO"}, str(self.loader.connected))
+            self.loader.change_port(context.scene.available_ports)
+
         return {"FINISHED"}
 
 
@@ -412,8 +411,9 @@ class UploadNavSystemParams(Operator):
     loader = None
 
     def execute(self, context):
-        self.report({"INFO"}, str(context.scene.available_ports))
-        context.scene.upload_allowed = True
+        if self.loader:
+            self.report({"INFO"}, str(self.loader.get_ap_firmware_version()))
+            context.scene.upload_allowed = True
         return {"FINISHED"}
 
 
