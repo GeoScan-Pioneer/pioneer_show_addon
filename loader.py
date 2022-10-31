@@ -279,6 +279,9 @@ class Loader:
     def enable_auto_connect(self):
         self.serial_master.auto_port_detect = True
 
+    def disable_auto_connect(self):
+        self.serial_master.auto_port_detect = False
+
     def kill_serial_master(self):
         self.serial_master.port_handler_thread.kill()
         self.serial_master.close_serial()

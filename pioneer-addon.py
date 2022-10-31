@@ -28,6 +28,12 @@ def connection_state_handler(status, value=None):
         bpy.context.scene.upload_allowed = False
 
 
+def auto_connection_set_callback(self, context):
+    if context.scene.auto_connection:
+        loader = classes_loader[0].loader
+        loader.enable_auto_connect()
+
+
 CONFIG_PROPS = [
     ("using_name_filter", BoolProperty(name="Use name filter for drones",
                                        default=True)),
@@ -59,6 +65,7 @@ PIONEER_PROPS = [
     ("board_number", IntProperty(name="Board_number",
                                  default=1)),
     ("available_ports", EnumProperty(items=[], name="Available ports")),
+    ("auto_connection", BoolProperty(name="Auto port connection", default=True, update=auto_connection_set_callback)),
 ]
 
 SYSTEM_PROPS_PUBLIC = [
@@ -96,6 +103,7 @@ LANGUAGE_PACK_ENGLISH = {
     "ConnectPioneer": "Connect Pioneer",
     "UploadNavSystemParams": "Upload params",
     "UploadFilesToPioneer": "Upload files",
+    "auto_connection": "Auto port connection",
     "speed_exceeded_error": "Speed exceeded on frame %d on drone %s. speed: %.2f m/s",
     "distance_underestimated_error": "Distance less than minimums on frame %d on drones  %s & %s",
     "miss_color_error": "No color found on %s on frame %d",
@@ -127,6 +135,7 @@ LANGUAGE_PACK_RUSSIAN = {
     "ConnectPioneer": "Подключить Пионер",
     "UploadNavSystemParams": "Загрузить параметры",
     "UploadFilesToPioneer": "Загрузить файлы",
+    "auto_connection": "Автоматическое подключение",
     "speed_exceeded_error": "Скорость превышена на кадре %d дроном %s. скорость: %.2f м/с",
     "distance_underestimated_error": "Расстояние меньше минимального на кадре %d между дронами  %s и %s",
     "miss_color_error": "Не найден цвет у %s на кадре %d",
@@ -370,7 +379,9 @@ class ConnectPioneer(Operator):
 
     def execute(self, context):
         if self.loader:
-            context.scene.upload_allowed = True
+            self.loader.disable_auto_connect()
+            context.scene.auto_connection = False
+            # self.loader.change_port(port)
             self.report({"INFO"}, str(self.loader.get_ap_firmware_version()))
             self.report({"INFO"}, str(self.loader.connected))
         return {"FINISHED"}
@@ -607,6 +618,10 @@ class ConnectionPanel(Panel):
         row = col.row()
         row.label(text=(LANGUAGE_PACK.get(context.scene.language)).get("board_number"))
         row.prop(scene, "board_number", text='')
+
+        row = col.row()
+        row.label(text=(LANGUAGE_PACK.get(context.scene.language)).get("auto_connection"))
+        row.prop(scene, "auto_connection", text='')
 
         row = col.row()
         # scene.available_ports.items = [("op1", "asas", "")]
