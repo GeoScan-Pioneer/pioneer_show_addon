@@ -34,6 +34,18 @@ def auto_connection_set_callback(self, context):
         loader.enable_auto_connect()
 
 
+def items_ports_callback(scene, context):
+    loader = classes_loader[0].loader
+    if loader:
+        ports = loader.get_ports_list()
+        items = []
+        for i, port in enumerate(ports):
+            items.append((port, port, "", i))
+        return items
+    else:
+        return None
+
+
 CONFIG_PROPS = [
     ("using_name_filter", BoolProperty(name="Use name filter for drones",
                                        default=True)),
@@ -61,10 +73,17 @@ CONFIG_PROPS_NAV = [
                                  default=60.010663)),
 ]
 
+test_items = [
+    ("RED", "Red", "", 1),  # value, display, hz, id
+    ("GREEN", "Green", "", 2),
+    ("BLUE", "Blue", "", 3),
+    ("YELLOW", "Yellow", "", 4),
+]
+
 PIONEER_PROPS = [
     ("board_number", IntProperty(name="Board_number",
                                  default=1)),
-    ("available_ports", EnumProperty(items=[], name="Available ports")),
+    ("available_ports", EnumProperty(items=items_ports_callback, name="Available ports", default=None)),
     ("auto_connection", BoolProperty(name="Auto port connection", default=True, update=auto_connection_set_callback)),
 ]
 
@@ -393,6 +412,7 @@ class UploadNavSystemParams(Operator):
     loader = None
 
     def execute(self, context):
+        self.report({"INFO"}, str(context.scene.available_ports))
         context.scene.upload_allowed = True
         return {"FINISHED"}
 
@@ -624,8 +644,7 @@ class ConnectionPanel(Panel):
         row.prop(scene, "auto_connection", text='')
 
         row = col.row()
-        # scene.available_ports.items = [("op1", "asas", "")]
-        # row.prop(scene, "available_ports", text='')
+        row.prop(scene, "available_ports", text='')
         row.operator(ConnectPioneer.bl_idname, text=(LANGUAGE_PACK.get(context.scene.language)).get("ConnectPioneer"))
 
         row = col.row()
