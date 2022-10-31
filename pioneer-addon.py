@@ -1,3 +1,5 @@
+import time
+
 import bpy
 from bpy_extras.io_utils import ExportHelper
 from bpy.types import Operator, Panel, WindowManager
@@ -46,8 +48,7 @@ CONFIG_PROPS_NAV = [
 PIONEER_PROPS = [
     ("board_number", IntProperty(name="Board_number",
                                  default=1)),
-    # ("available_ports", EnumProperty(items=[], name="Available ports",
-    #                                  default=[])),
+    ("available_ports", EnumProperty(items=[], name="Available ports")),
 ]
 
 SYSTEM_PROPS_PUBLIC = [
@@ -142,11 +143,6 @@ class ExportLuaBinaries(Operator, ExportHelper):
         subtype='DIR_PATH',
         default=""
     )
-    available_ports: EnumProperty(
-        items=[],
-        name="Available ports",
-        default=[]
-    )
 
     def draw(self, context):
         global_props = ["using_name_filter",
@@ -188,10 +184,6 @@ class ExportLuaBinaries(Operator, ExportHelper):
                 row = col.row()
                 row.label(text=(LANGUAGE_PACK.get(context.scene.language)).get(prop_name))
                 row.prop(context.scene, prop_name, text='')
-
-        col = layout.column()
-        row = col.row()
-        row.prop(self, "available_ports", text='')
 
     def execute(self, context):
         scene = context.scene
@@ -363,25 +355,19 @@ class ExportLuaBinaries(Operator, ExportHelper):
 class ConnectPioneer(Operator):
     bl_idname = "show.connect_pioneer"
     bl_label = "Подключить пионер"
+    loader = None
 
     def execute(self, context):
-        self.report({"INFO"}, "sdfsd")
+        if self.loader:
+            self.report({"INFO"}, str(self.loader.get_ap_firmware_version()))
+            self.report({"INFO"}, str(self.loader.connected))
         return {"FINISHED"}
-
-    def invoke(self, context, event):
-        wm = context.window_manager
-        # wm.invoke_props_dialog(self, width=400)
-        wm.invoke_popup(self, width=400)
-        return {'RUNNING_MODAL'}
-
-    def draw(self, context):
-        self.layout.label(text="self.message")
-        self.layout.prop(context.scene, "drones_name", text="asd")
 
 
 class UploadNavSystemParams(Operator):
     bl_idname = "show.upload_navsystem_params"
     bl_label = "Обновить параметры под систему навигации"
+    loader = None
 
     def execute(self, context):
         return {"FINISHED"}
@@ -390,6 +376,7 @@ class UploadNavSystemParams(Operator):
 class UploadFilesToPioneer(Operator):
     bl_idname = "show.upload_files_to_pionner"
     bl_label = "Загрузить файлы на пионер"
+    loader = None
 
     def execute(self, context):
         scene = context.scene
@@ -569,8 +556,6 @@ class ConnectionPanel(Panel):
     bl_region_type = 'UI'
     bl_category = "GeoScan"
 
-    # loader = Loader()
-
     def draw(self, context):
         props_lps = ["x_offset",
                      "y_offset",
@@ -608,7 +593,8 @@ class ConnectionPanel(Panel):
         row.prop(scene, "board_number", text='')
 
         row = col.row()
-        row.prop(scene, "available_ports", text='')
+        # scene.available_ports.items = [("op1", "asas", "")]
+        # row.prop(scene, "available_ports", text='')
         row.operator(ConnectPioneer.bl_idname, text=(LANGUAGE_PACK.get(context.scene.language)).get("ConnectPioneer"))
 
         row = col.row()
@@ -751,9 +737,11 @@ classes.append(SystemPanel)
 classes.append(ConnectionPanel)
 classes.append(CheckForLimits)
 classes.append(ChangeLanguage)
-classes.append(ConnectPioneer)
-classes.append(UploadNavSystemParams)
-classes.append(UploadFilesToPioneer)
+
+classes_loader = list()
+classes_loader.append(ConnectPioneer)
+classes_loader.append(UploadNavSystemParams)
+classes_loader.append(UploadFilesToPioneer)
 
 
 def change_handler(scene):
@@ -778,6 +766,15 @@ def register():
 
     for cls in classes:
         bpy.utils.register_class(cls)
+
+    loader = Loader()
+    time.sleep(1)
+    for loader_cls in classes_loader:
+        loader_cls.loader = loader
+
+    for cls in classes_loader:
+        bpy.utils.register_class(cls)
+
     bpy.types.TOPBAR_MT_editor_menus.append(TOPBAR_MT_geoscan_menu.menu_draw)
     bpy.app.handlers.depsgraph_update_pre.append(change_handler)
 
@@ -802,8 +799,12 @@ def unregister():
     for (prop_name, _) in SYSTEM_PROPS_PRIVATE:
         delattr(bpy.types.Scene, prop_name)
 
-    for cls in classes:
+    for cls in classes, classes_loader:
         bpy.utils.unregister_class(cls)
+
+    loader = classes_loader[0].loader
+    if loader:
+        loader.kill_serial_master()
 
 
 if __name__ == "__main__":

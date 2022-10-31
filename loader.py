@@ -234,12 +234,12 @@ class Loader:
                                           self.ports_update_callback,
                                           auto_port_detect=auto_port_detect)
 
-        self.sem = threading.Semaphore(1)
+        self._sem = threading.Semaphore(1)
 
-    def acquire_sem(self, interval=1):
-        timer = threading.Timer(interval, lambda: self.sem.release())
+    def _acquire_sem(self, interval=1):
+        timer = threading.Timer(interval, lambda: self._sem.release())
         timer.start()
-        self.sem.acquire()
+        self._sem.acquire()
 
     def _check_bin(self, binary):
         check_bytes = b'\xaa\xbb\xcc\xdd'
@@ -269,16 +269,20 @@ class Loader:
     def ports_update_callback():
         print("Ports updated")
 
+    def kill_serial_master(self):
+        self.serial_master.port_handler_thread.kill()
+        self.serial_master.close_serial()
+
     def restart_board(self):
         if self.connected:
-            self.acquire_sem(1)
-            self.sem.acquire()
+            self._acquire_sem(1)
+            self._sem.acquire()
             for key, value in proto.Protocol.SYSTEM_COMMANDS.items():
                 if value == 'Restart':
                     restart_command = key
             self.messenger.resetProgress()
             self.hub.sendCommand(restart_command, callback=self.restart_board_callback)
-            self.sem.release()
+            self._sem.release()
             self.serial_master.reconnect_after_restart()
 
     @staticmethod
