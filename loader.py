@@ -133,6 +133,7 @@ class SerialMaster:
     def connect_serial(self, serial):
         print("run manual connect")
         time.sleep(0.5)
+        self.auto_port_detect = False
         if self.connected.value:
             if serial != self.serial:
                 self.close_serial()
@@ -229,10 +230,12 @@ class Loader:
 
     connected = None
 
-    def __init__(self, auto_port_detect: bool = True):
+    def __init__(self, connection_callback=None, auto_port_detect: bool = True):
         self.serial_master = SerialMaster(self.connect_callback, self.disconnect_callback,
                                           self.ports_update_callback,
                                           auto_port_detect=auto_port_detect)
+
+        self._user_connection_callback = connection_callback
 
         self._sem = threading.Semaphore(1)
 
@@ -260,14 +263,21 @@ class Loader:
         self.hub = hub
         self.connected = True
         print("Connected to board version {}".format(self.get_ap_firmware_version()))
+        if self._user_connection_callback:
+            self._user_connection_callback(self.connected)
 
     def disconnect_callback(self):
         print("Disconnected")
         self.connected = False
+        if self._user_connection_callback:
+            self._user_connection_callback(self.connected)
 
     @staticmethod
     def ports_update_callback():
         print("Ports updated")
+
+    def enable_auto_connect(self):
+        self.serial_master.auto_port_detect = True
 
     def kill_serial_master(self):
         self.serial_master.port_handler_thread.kill()

@@ -18,6 +18,16 @@ bl_info = {
     "category": "GeoScan"
 }
 
+
+def scene_change_handler(scene):
+    bpy.context.scene.export_allowed = False
+
+
+def connection_state_handler(status, value=None):
+    if bpy.context.scene.upload_allowed:
+        bpy.context.scene.upload_allowed = False
+
+
 CONFIG_PROPS = [
     ("using_name_filter", BoolProperty(name="Use name filter for drones",
                                        default=True)),
@@ -32,7 +42,7 @@ CONFIG_PROPS = [
 
 CONFIG_PROPS_NAV = [
     ("position_system", BoolProperty(name="Use GPS/LPS",
-                                     default=False)),
+                                     default=False, update=connection_state_handler)),
     ("x_offset", FloatProperty(name="Limit of  speed (m/s)",
                                default=0)),
     ("y_offset", FloatProperty(name="Limit of  speed (m/s)",
@@ -61,6 +71,7 @@ SYSTEM_PROPS_PUBLIC = [
 
 SYSTEM_PROPS_PRIVATE = [
     ("export_allowed", BoolProperty(default=False)),
+    ("upload_allowed", BoolProperty(default=False)),
     ("language", BoolProperty(default=False)),
 ]
 
@@ -359,6 +370,7 @@ class ConnectPioneer(Operator):
 
     def execute(self, context):
         if self.loader:
+            context.scene.upload_allowed = True
             self.report({"INFO"}, str(self.loader.get_ap_firmware_version()))
             self.report({"INFO"}, str(self.loader.connected))
         return {"FINISHED"}
@@ -370,6 +382,7 @@ class UploadNavSystemParams(Operator):
     loader = None
 
     def execute(self, context):
+        context.scene.upload_allowed = True
         return {"FINISHED"}
 
 
@@ -380,6 +393,8 @@ class UploadFilesToPioneer(Operator):
 
     def execute(self, context):
         scene = context.scene
+        if scene.upload_allowed:
+            pass
         return {"FINISHED"}
 
     def prepare_export_arrays(self, pioneer, scene):
@@ -568,6 +583,7 @@ class ConnectionPanel(Panel):
         scene = context.scene
         col = layout.column()
         row = col.row()
+
         if scene.position_system:
             row.label(text=(LANGUAGE_PACK.get(context.scene.language)).get("position_system_true"))
         else:
@@ -600,8 +616,11 @@ class ConnectionPanel(Panel):
         row = col.row()
         row.operator(UploadNavSystemParams.bl_idname,
                      text=(LANGUAGE_PACK.get(context.scene.language)).get("UploadNavSystemParams"))
-        row.operator(UploadFilesToPioneer.bl_idname,
-                     text=(LANGUAGE_PACK.get(context.scene.language)).get("UploadFilesToPioneer"))
+
+        _upload_binaries = row.row()
+        _upload_binaries.enabled = scene.upload_allowed
+        _upload_binaries.operator(UploadFilesToPioneer.bl_idname,
+                                  text=(LANGUAGE_PACK.get(context.scene.language)).get("UploadFilesToPioneer"))
 
 
 class ChangeLanguage(Operator):
@@ -744,10 +763,6 @@ classes_loader.append(UploadNavSystemParams)
 classes_loader.append(UploadFilesToPioneer)
 
 
-def change_handler(scene):
-    bpy.context.scene.export_allowed = False
-
-
 def register():
     for (prop_name, prop_value) in CONFIG_PROPS:
         setattr(bpy.types.Scene, prop_name, prop_value)
@@ -767,7 +782,7 @@ def register():
     for cls in classes:
         bpy.utils.register_class(cls)
 
-    loader = Loader()
+    loader = Loader(connection_state_handler)
     time.sleep(1)
     for loader_cls in classes_loader:
         loader_cls.loader = loader
@@ -776,13 +791,13 @@ def register():
         bpy.utils.register_class(cls)
 
     bpy.types.TOPBAR_MT_editor_menus.append(TOPBAR_MT_geoscan_menu.menu_draw)
-    bpy.app.handlers.depsgraph_update_pre.append(change_handler)
+    bpy.app.handlers.depsgraph_update_pre.append(scene_change_handler)
 
 
 def unregister():
     bpy.context.scene.export_allowed = False
     [bpy.app.handlers.depsgraph_update_pre.remove(h) for h in bpy.app.handlers.depsgraph_update_pre if
-     h.__name__ == "change_handler"]
+     h.__name__ == "scene_change_handler"]
     bpy.types.TOPBAR_MT_editor_menus.remove(TOPBAR_MT_geoscan_menu.menu_draw)
     for (prop_name, _) in CONFIG_PROPS:
         delattr(bpy.types.Scene, prop_name)
@@ -799,7 +814,10 @@ def unregister():
     for (prop_name, _) in SYSTEM_PROPS_PRIVATE:
         delattr(bpy.types.Scene, prop_name)
 
-    for cls in classes, classes_loader:
+    for cls in classes:
+        bpy.utils.unregister_class(cls)
+
+    for cls in classes_loader:
         bpy.utils.unregister_class(cls)
 
     loader = classes_loader[0].loader
