@@ -125,6 +125,8 @@ LANGUAGE_PACK_ENGLISH = {
     "UploadNavSystemParams": "Upload params",
     "UploadFilesToPioneer": "Upload files",
     "auto_connection": "Auto port connection",
+    "no_pioneer_connected": "No Pioneer connected",
+    "pioneer_fw_version": "Pioneer firmware version: ",
     "speed_exceeded_error": "Speed exceeded on frame %d on drone %s. speed: %.2f m/s",
     "distance_underestimated_error": "Distance less than minimums on frame %d on drones  %s & %s",
     "miss_color_error": "No color found on %s on frame %d",
@@ -157,6 +159,8 @@ LANGUAGE_PACK_RUSSIAN = {
     "UploadNavSystemParams": "Загрузить параметры",
     "UploadFilesToPioneer": "Загрузить файлы",
     "auto_connection": "Автоматическое подключение",
+    "no_pioneer_connected": "Пионер не подключен",
+    "pioneer_fw_version": "Версия прошивки Пионера",
     "speed_exceeded_error": "Скорость превышена на кадре %d дроном %s. скорость: %.2f м/с",
     "distance_underestimated_error": "Расстояние меньше минимального на кадре %d между дронами  %s и %s",
     "miss_color_error": "Не найден цвет у %s на кадре %d",
@@ -415,8 +419,15 @@ class UploadNavSystemParams(Operator):
 
     def execute(self, context):
         if self.loader:
-            self.report({"INFO"}, str(self.loader.get_ap_firmware_version()))
-            context.scene.upload_allowed = True
+            try:
+                if context.scene.position_system:
+                    self.loader.upload_gps_params()
+                else:
+                    self.loader.upload_lps_params()
+                context.scene.upload_allowed = True
+            except Exception as e:
+                self.report({"ERROR"}, str(e))
+                context.scene.upload_allowed = False
         return {"FINISHED"}
 
 
@@ -603,7 +614,8 @@ class ConnectionPanel(Panel):
     bl_label = 'GeoScan Pioneer connection'
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'UI'
-    bl_category = "GeoScan"
+    bl_category = "GeoScan"''
+    loader = None
 
     def draw(self, context):
         props_lps = ["x_offset",
@@ -649,6 +661,16 @@ class ConnectionPanel(Panel):
         row = col.row()
         row.prop(scene, "available_ports", text='')
         row.operator(ConnectPioneer.bl_idname, text=(LANGUAGE_PACK.get(context.scene.language)).get("ConnectPioneer"))
+
+        row = col.row()
+        if self.loader:
+            if self.loader.connected:
+                row.label(text=(LANGUAGE_PACK.get(context.scene.language)).get("pioneer_fw_version") +
+                               str(self.loader.get_ap_firmware_version()))
+            else:
+                row.label(text=(LANGUAGE_PACK.get(context.scene.language)).get("no_pioneer_connected"))
+        else:
+            row.label(text=(LANGUAGE_PACK.get(context.scene.language)).get("no_pioneer_connected"))
 
         row = col.row()
         row.operator(UploadNavSystemParams.bl_idname,
@@ -790,7 +812,6 @@ classes.append(TOPBAR_MT_geoscan_menu)
 classes.append(ExportLuaBinaries)
 classes.append(ConfigurePanel)
 classes.append(SystemPanel)
-classes.append(ConnectionPanel)
 classes.append(CheckForLimits)
 classes.append(ChangeLanguage)
 
@@ -798,6 +819,7 @@ classes_loader = list()
 classes_loader.append(ConnectPioneer)
 classes_loader.append(UploadNavSystemParams)
 classes_loader.append(UploadFilesToPioneer)
+classes_loader.append(ConnectionPanel)
 
 
 def _disable_uploading_on_startup():
