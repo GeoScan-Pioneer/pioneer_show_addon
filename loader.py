@@ -99,14 +99,14 @@ class SerialMaster:
                             if connection_thread and connection_thread.is_alive():
                                 connection_thread.kill()
                             connection_thread = self.__create_thread(self.__auto_connect)
-                    else:
-                        if not self.connected:
-                            if self.auto_connect and len(self.ports) > 0:
-                                if self.serial != self.ports[0]:
-                                    self.serial = self.ports[0]
-                                    if connection_thread and connection_thread.is_alive():
-                                        connection_thread.kill()
-                                    connection_thread = self.__create_thread(self.__auto_connect)
+                else:
+                    if not self.connected:
+                        if self.auto_connect and len(self.ports) > 0:
+                            if self.serial != self.ports[0]:
+                                self.serial = self.ports[0]
+                                if connection_thread and connection_thread.is_alive():
+                                    connection_thread.kill()
+                                connection_thread = self.__create_thread(self.__auto_connect)
             else:
                 self.ports = self.available_ports()
                 if self.auto_connect:
