@@ -7,6 +7,7 @@ from bpy.props import StringProperty, BoolProperty, FloatProperty, IntProperty, 
 import os
 import math
 import struct
+import threading
 from loader import Loader
 
 bl_info = {
@@ -24,8 +25,9 @@ def scene_change_handler(scene):
 
 
 def connection_state_handler(status, value=None):
-    if bpy.context.scene.upload_allowed:
-        bpy.context.scene.upload_allowed = False
+    if "scene" in dir(bpy.context):
+        if bpy.context.scene.upload_allowed:
+            bpy.context.scene.upload_allowed = False
 
 
 def auto_connection_set_callback(self, context):
@@ -798,6 +800,12 @@ classes_loader.append(UploadNavSystemParams)
 classes_loader.append(UploadFilesToPioneer)
 
 
+def _disable_uploading_on_startup():
+    while not ("scene" in dir(bpy.context)):
+        pass
+    bpy.context.scene.upload_allowed = False
+
+
 def register():
     for (prop_name, prop_value) in CONFIG_PROPS:
         setattr(bpy.types.Scene, prop_name, prop_value)
@@ -827,6 +835,9 @@ def register():
 
     bpy.types.TOPBAR_MT_editor_menus.append(TOPBAR_MT_geoscan_menu.menu_draw)
     bpy.app.handlers.depsgraph_update_pre.append(scene_change_handler)
+
+    _disable_uploading_on_startup_thread = threading.Thread(target=_disable_uploading_on_startup)
+    _disable_uploading_on_startup_thread.start()
 
 
 def unregister():

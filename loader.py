@@ -136,7 +136,7 @@ class SerialMaster:
     def connect_serial(self, serial):
         print("run manual connect")
         time.sleep(0.5)
-        self.auto_port_detect = False
+        self.auto_connect = False
 
         if serial != self.serial:
             self.close_serial()
@@ -148,7 +148,7 @@ class SerialMaster:
             try:
                 self.open_serial(self.serial, baudrate)
             except serial.SerialException:
-                break
+                pass
             try:
                 if self.stream.socket.is_open:
                     self.baudrate = baudrate
@@ -285,10 +285,10 @@ class Loader:
         print("Ports updated")
 
     def enable_auto_connect(self):
-        self.serial_master.auto_port_detect = True
+        self.serial_master.auto_connect = True
 
     def disable_auto_connect(self):
-        self.serial_master.auto_port_detect = False
+        self.serial_master.auto_connect = False
 
     def kill_serial_master(self):
         self.serial_master.port_handler_thread.kill()
