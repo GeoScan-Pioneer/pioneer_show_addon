@@ -29,7 +29,6 @@ class SerialMaster:
     hub = None
 
     auto_connect = None
-    auto_port_detect = None
     connected = False
     reconnect_callback = None
     disconnect_callback = None
@@ -45,11 +44,11 @@ class SerialMaster:
             self._tstate_lock.release()
             self._stop()
 
-    def __init__(self, connect_callback, disconnect_callback, ports_update_callback, auto_port_detect: bool = True):
+    def __init__(self, connect_callback, disconnect_callback, ports_update_callback, auto_connect: bool = True):
         self.connect_callback = connect_callback
         self.disconnect_callback = disconnect_callback
         self.ports_update_callback = ports_update_callback
-        self.auto_port_detect = auto_port_detect
+        self.auto_connect = auto_connect
 
         self.__is_working = True
 
@@ -78,7 +77,7 @@ class SerialMaster:
             self.messenger = proto.Messenger(self.stream, os.path.join('cache'))
             self.hub = self.messenger.hub
         except Exception:
-            raise Exception('Failed to open port {}. Try another port and reconnect the droneNum'.format(serial))
+            print('Failed to open port {}. Try another port and reconnect the droneNum'.format(serial))
 
     def __port_handler(self):
         connection_thread = None
@@ -86,7 +85,7 @@ class SerialMaster:
             if self.ports:
                 _cached_ports = self.ports
                 self.ports = self.available_ports()
-                if _cached_ports != self.ports:  # and _cached_ports:
+                if _cached_ports != self.ports:
                     self.ports_update_callback()
                     if len(_cached_ports) > len(self.ports) and self.connected:
                         for i in range(len(_cached_ports)):
@@ -95,27 +94,31 @@ class SerialMaster:
                                     print("disconnected port {}".format(_cached_ports[i]))
                                     self.close_serial()
                                     self.disconnect_callback()
-                        if self.auto_port_detect and len(self.ports):
+                        if self.auto_connect and len(self.ports):
                             self.serial = self.ports[0]
                             if connection_thread and connection_thread.is_alive():
                                 connection_thread.kill()
-                            self.__create_thread(self.__auto_connect)
+                            connection_thread = self.__create_thread(self.__auto_connect)
                     else:
                         if not self.connected:
-                            if self.auto_port_detect and len(self.ports) > 0:
+                            if self.auto_connect and len(self.ports) > 0:
                                 if self.serial != self.ports[0]:
                                     self.serial = self.ports[0]
                                     if connection_thread and connection_thread.is_alive():
                                         connection_thread.kill()
-                                    self.__create_thread(self.__auto_connect)
+                                    connection_thread = self.__create_thread(self.__auto_connect)
             else:
                 self.ports = self.available_ports()
-                if self.auto_port_detect:
+                if self.auto_connect:
                     if len(self.ports) > 0:
                         self.serial = self.ports[0]
                         if connection_thread and connection_thread.is_alive():
                             connection_thread.kill()
-                        self.__create_thread(self.__auto_connect)
+                        connection_thread = self.__create_thread(self.__auto_connect)
+
+            if connection_thread and connection_thread.is_alive():
+                if not self.auto_connect:
+                    connection_thread.kill()
             time.sleep(0.25)
 
     def __create_thread(self, target, args=None, join: bool = False):
@@ -128,21 +131,22 @@ class SerialMaster:
     def __auto_connect(self):
         print("run auto connect")
         time.sleep(0.5)
-        self.__make_connection(self.serial)
+        self.__make_connection()
 
     def connect_serial(self, serial):
         print("run manual connect")
         time.sleep(0.5)
         self.auto_port_detect = False
-        if self.connected:
-            if serial != self.serial:
-                self.close_serial()
-                self.__make_connection(serial)
 
-    def __make_connection(self, serial):
+        if serial != self.serial:
+            self.close_serial()
+            self.serial = serial
+            self.__make_connection()
+
+    def __make_connection(self):
         for baudrate in self.baudrate_list:
             try:
-                self.open_serial(serial, baudrate)
+                self.open_serial(self.serial, baudrate)
             except serial.SerialException:
                 break
             try:
@@ -184,6 +188,8 @@ class SerialMaster:
         self.connected = False
         if self.messenger:
             self.messenger.stop()
+        if self.stream:
+            self.stream.socket.close()
         try:
             self.stream.__del__()
         except Exception:
@@ -212,6 +218,8 @@ class SerialMaster:
             if port == self.serial:
                 result.append(port)
                 continue
+            elif port == "COM1":
+                continue
             try:
                 s = serial.Serial(port)
                 s.close()
@@ -230,10 +238,10 @@ class Loader:
 
     connected = None
 
-    def __init__(self, connection_callback=None, auto_port_detect: bool = True):
+    def __init__(self, connection_callback=None, auto_connect: bool = True):
         self.serial_master = SerialMaster(self.connect_callback, self.disconnect_callback,
                                           self.ports_update_callback,
-                                          auto_port_detect=auto_port_detect)
+                                          auto_connect=auto_connect)
 
         self._user_connection_callback = connection_callback
 

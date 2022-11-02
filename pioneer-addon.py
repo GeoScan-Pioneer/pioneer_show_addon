@@ -398,9 +398,10 @@ class ConnectPioneer(Operator):
 
     def execute(self, context):
         if self.loader:
-            self.loader.disable_auto_connect()
-            context.scene.auto_connection = False
-            self.loader.change_port(context.scene.available_ports)
+            if context.scene.available_ports:
+                context.scene.auto_connection = False
+                self.loader.change_port(context.scene.available_ports)
+                time.sleep(1)
 
         return {"FINISHED"}
 
