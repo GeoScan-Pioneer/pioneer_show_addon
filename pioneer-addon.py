@@ -26,8 +26,9 @@ def scene_change_handler(scene):
 
 def connection_state_handler(status, value=None):
     if "scene" in dir(bpy.context):
-        if bpy.context.scene.upload_allowed:
-            bpy.context.scene.upload_allowed = False
+        if "upload_allowed" in dir(bpy.context.scene):
+            if bpy.context.scene.upload_allowed:
+                bpy.context.scene.upload_allowed = False
 
 
 def auto_connection_set_callback(self, context):
@@ -122,11 +123,13 @@ LANGUAGE_PACK_ENGLISH = {
     "CheckForLimits": "Check if is animation correct",
     "CheckSuccess": "Check is success",
     "ConnectPioneer": "Connect Pioneer",
+    "DisconnectPioneer": "Disconnect Pioneer",
     "UploadNavSystemParams": "Upload params",
     "UploadFilesToPioneer": "Upload files",
     "auto_connection": "Auto port connection",
     "no_pioneer_connected": "No Pioneer connected",
     "pioneer_fw_version": "Pioneer firmware version: ",
+    "pioneer_connected_port": "Pioneer port: ",
     "speed_exceeded_error": "Speed exceeded on frame %d on drone %s. speed: %.2f m/s",
     "distance_underestimated_error": "Distance less than minimums on frame %d on drones  %s & %s",
     "miss_color_error": "No color found on %s on frame %d",
@@ -156,11 +159,13 @@ LANGUAGE_PACK_RUSSIAN = {
     "CheckForLimits": "Проверка корректности анимации",
     "CheckSuccess": "Проверка успешно пройдена",
     "ConnectPioneer": "Подключить Пионер",
+    "DisconnectPioneer": "Отключить Пионер",
     "UploadNavSystemParams": "Загрузить параметры",
     "UploadFilesToPioneer": "Загрузить файлы",
     "auto_connection": "Автоматическое подключение",
     "no_pioneer_connected": "Пионер не подключен",
-    "pioneer_fw_version": "Версия прошивки Пионера",
+    "pioneer_fw_version": "Версия прошивки Пионера: ",
+    "pioneer_connected_port": "Порт Пионера: ",
     "speed_exceeded_error": "Скорость превышена на кадре %d дроном %s. скорость: %.2f м/с",
     "distance_underestimated_error": "Расстояние меньше минимального на кадре %d между дронами  %s и %s",
     "miss_color_error": "Не найден цвет у %s на кадре %d",
@@ -408,6 +413,20 @@ class ConnectPioneer(Operator):
                 context.scene.auto_connection = False
                 self.loader.change_port(context.scene.available_ports)
                 time.sleep(1)
+
+        return {"FINISHED"}
+
+
+class DisconnectPioneer(Operator):
+    bl_idname = "show.disconnect_pioneer"
+    bl_label = "Отключить пионер"
+    loader = None
+
+    def execute(self, context):
+        if self.loader:
+            if self.loader.connected:
+                context.scene.auto_connection = False
+                self.loader.disconnect()
 
         return {"FINISHED"}
 
@@ -662,15 +681,23 @@ class ConnectionPanel(Panel):
         row.prop(scene, "available_ports", text='')
         row.operator(ConnectPioneer.bl_idname, text=(LANGUAGE_PACK.get(context.scene.language)).get("ConnectPioneer"))
 
+        if self.loader and self.loader.connected:
+            row = col.row()
+            row.label(text=(LANGUAGE_PACK.get(context.scene.language)).get("pioneer_connected_port") + str(
+                self.loader.serial_master.serial))
+
         row = col.row()
         if self.loader:
             if self.loader.connected:
-                row.label(text=(LANGUAGE_PACK.get(context.scene.language)).get("pioneer_fw_version") +
-                               str(self.loader.get_ap_firmware_version()))
+                row.label(text=(LANGUAGE_PACK.get(context.scene.language)).get("pioneer_fw_version") + str(
+                    self.loader.get_ap_firmware_version()))
             else:
                 row.label(text=(LANGUAGE_PACK.get(context.scene.language)).get("no_pioneer_connected"))
         else:
             row.label(text=(LANGUAGE_PACK.get(context.scene.language)).get("no_pioneer_connected"))
+        row = col.row()
+        row.operator(DisconnectPioneer.bl_idname,
+                     text=(LANGUAGE_PACK.get(context.scene.language)).get("DisconnectPioneer"))
 
         row = col.row()
         row.operator(UploadNavSystemParams.bl_idname,
@@ -817,6 +844,7 @@ classes.append(ChangeLanguage)
 
 classes_loader = list()
 classes_loader.append(ConnectPioneer)
+classes_loader.append(DisconnectPioneer)
 classes_loader.append(UploadNavSystemParams)
 classes_loader.append(UploadFilesToPioneer)
 classes_loader.append(ConnectionPanel)

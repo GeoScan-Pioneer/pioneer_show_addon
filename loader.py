@@ -4,6 +4,11 @@ import struct
 import os
 import sys
 import glob
+import urllib.error
+import urllib.request
+import json
+import ssl
+import certifi
 
 try:
     import serial
@@ -11,11 +16,12 @@ except ModuleNotFoundError:
     import subprocess
 
     py_exec = str(sys.executable)
-    subprocess.call([py_exec, "-m", "ensurepip", "--user"])
     subprocess.call([py_exec, "-m", "pip", "install", "--upgrade", "pip"])
     subprocess.call([py_exec, "-m", "pip", "install", "pyserial"])
     import serial
 import proto
+
+json_url = "https://docs.geoscan.aero/ru/beta-1/_downloads/e095007f59309ec01db50632ee4852b5/config.json"
 
 
 class SerialMaster:
@@ -35,10 +41,17 @@ class SerialMaster:
     __is_working = None
 
     class Thread(threading.Thread):
-        def __init__(self, run):
+        def __init__(self, target, args=None):
             threading.Thread.__init__(self)
             self.test = True
-            self.run = run
+            self.target = target
+            self.args = args
+
+        def run(self):
+            if self.args:
+                self.target(self.args)
+            else:
+                self.target()
 
         def kill(self):
             self._tstate_lock.release()
@@ -169,7 +182,7 @@ class SerialMaster:
             return
         except Exception:
             pass
-        self.__make_connection(self.serial)
+        self.__make_connection()
 
     def connect_messenger(self):
         connected = False
@@ -185,6 +198,8 @@ class SerialMaster:
             return False
 
     def close_serial(self):
+        if self.connected:
+            self.disconnect_callback()
         self.connected = False
         if self.messenger:
             self.messenger.stop()
@@ -239,6 +254,24 @@ class Loader:
     connected = None
 
     def __init__(self, connection_callback=None, auto_connect: bool = True):
+        try:
+            with urllib.request.urlopen(json_url, context=ssl.create_default_context(cafile=certifi.where()),
+                                        timeout=5) as url:
+                data = json.load(url)
+                print("Json loaded from url")
+                f = open("config.json", 'w')
+                json.dump(data, f)
+                f.close()
+        except urllib.error.URLError:
+            f = open("config.json", 'r')
+            data = json.load(f)
+            f.close()
+        self.actual_ap_fw_version = data["ap_fw"]
+        self.params_gps = data["params"]["gps"]
+        self.params_lps = data["params"]["lps"]
+        self.fields_gps = data["fields"]["gps"]
+        self.fields_lps = data["fields"]["lps"]
+
         self.serial_master = SerialMaster(self.connect_callback, self.disconnect_callback,
                                           self.ports_update_callback,
                                           auto_connect=auto_connect)
@@ -279,6 +312,9 @@ class Loader:
         self.connected = False
         if self._user_connection_callback:
             self._user_connection_callback(self.connected)
+
+    def disconnect(self):
+        self.serial_master.close_serial()
 
     @staticmethod
     def ports_update_callback():
@@ -336,7 +372,8 @@ class Loader:
 
                 version = self.hub.components[component_id].swVersion[2]
             except Exception:
-                raise Exception('Failed to get autopilot firmware version')
+                print('Failed to get autopilot firmware version')
+                return None
 
             return version
 
@@ -386,7 +423,6 @@ class Loader:
             print("Field written unsuccessfully")
 
     def upload_lua_script(self, path):
-        return
         if self.connected:
             lua = self.hub["LuaScript"]
             if lua:
