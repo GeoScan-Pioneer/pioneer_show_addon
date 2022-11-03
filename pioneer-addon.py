@@ -487,18 +487,19 @@ class UploadFilesToPioneer(Operator):
             pioneer = pioneers[scene.board_number]
             coords_array, colors_array, faults = self.prepare_export_arrays(pioneer, scene)
             if not faults:
-                if self.position_system:
+                if scene.position_system:
                     binary = self.write_to_bin(coords_array, colors_array,
-                                               [self.lat_offset, self.lon_offset])
+                                               [scene.lat_offset, scene.lon_offset])
                 else:
                     binary = self.write_to_bin(coords_array, colors_array,
-                                               [self.x_offset, self.y_offset])
+                                               [scene.x_offset, scene.y_offset])
             else:
                 return {"CANCELLED"}
             try:
                 self.loader.upload_bin(binary)
                 scene.board_number += 1
-                self.report({"INFO"}, (LANGUAGE_PACK.get(context.scene.language)).get("binaries_uploaded_successfully"))
+                self.report({"INFO"}, (LANGUAGE_PACK.get(context.scene.language)).get(
+                    "binaries_uploaded_successfully") % scene.board_number)
             except Exception as e:
                 self.report({"ERROR"},
                             (LANGUAGE_PACK.get(context.scene.language)).get("binaries_loading_error") % str(e))
@@ -512,9 +513,9 @@ class UploadFilesToPioneer(Operator):
             scene.frame_set(frame)
             if frame % int(scene.render.fps / scene.positionFreq) == 0:
                 x, y, z = pioneer.matrix_world.to_translation()
-                coords_array.append((x + self.x_offset * (not self.position_system),
-                                     y + self.y_offset * (not self.position_system), z + self.z_offset) * (
-                                        not self.position_system))
+                coords_array.append((x + scene.x_offset * (not scene.position_system),
+                                     y + scene.y_offset * (not scene.position_system), z + scene.z_offset) * (
+                                        not scene.position_system))
             if frame % int(scene.render.fps / scene.colorFreq) == 0:
                 r, g, b, _ = pioneer.active_material.diffuse_color
                 if r is None:
@@ -747,7 +748,7 @@ class ConnectionPanel(Panel):
                      text=(LANGUAGE_PACK.get(context.scene.language)).get("UploadNavSystemParams"))
 
         _upload_binaries = row.row()
-        _upload_binaries.enabled = scene.upload_allowed
+        _upload_binaries.enabled = scene.upload_allowed and scene.export_allowed
         _upload_binaries.operator(UploadFilesToPioneer.bl_idname,
                                   text=(LANGUAGE_PACK.get(context.scene.language)).get("UploadFilesToPioneer"))
 

@@ -386,38 +386,17 @@ class Loader:
         self.serial_master.connect_serial(port)
 
     def upload_lps_params(self):
-        params_to_change = {"BoardPioneer_module_gnss": 0,
-                            "BoardPioneer_module_ultrasonic": 1,
-                            "Copter_pos_vMax": 0.8,
-                            "Copter_pos_vDesc": 0.5,
-                            "Copter_pos_vDown": 0.5,
-                            "Copter_pos_vTakeoff": 1,
-                            "Copter_pos_vUp": 0.5,
-                            "Flight_com_takeoffAlt": 1,
-                            "Flight_com_navSystem": 1
-                            }
-        for param in params_to_change.keys():
-            self.set_param(name=param, value=params_to_change.get(param))
+        for param in self.params_lps.keys():
+            self.set_param(name=param, value=self.params_lps.get(param))
 
     def upload_gps_params(self):
-        params_to_change = {"BoardPioneer_module_gnss": 1,
-                            "BoardPioneer_module_ultrasonic": 0,
-                            "Copter_pos_vMax": 1.5,
-                            "Copter_pos_vDesc": 2,
-                            "Copter_pos_vDown": 4,
-                            "Copter_pos_vTakeoff": 1.5,
-                            "Copter_pos_vUp": 4,
-                            "Flight_com_takeoffAlt": 7,
-                            "Flight_com_navSystem": 0
-                            }
-        fields_to_change = {}
-        for param in params_to_change.keys():
-            self.set_param(name=param, value=params_to_change.get(param))
+        for param in self.params_gps.keys():
+            self.set_param(name=param, value=self.params_gps.get(param))
 
         Ublox = self.hub["Ublox"]
         for (_, field) in Ublox.fields.items():
-            if field.name in fields_to_change.keys():
-                field.write(fields_to_change.get(field.name), self.field_written_callback)
+            if field.name in self.fields_gps.keys():
+                field.write(self.fields_gps.get(field.name), self.field_written_callback)
 
     @staticmethod
     def field_written_callback(_, result, value):
