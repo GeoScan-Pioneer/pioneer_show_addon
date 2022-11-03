@@ -9,16 +9,19 @@ import urllib.request
 import json
 import ssl
 import certifi
+import subprocess
+import os
 
-try:
-    import serial
-except ModuleNotFoundError:
-    import subprocess
-
+if sys.platform.startswith('win'):
+    py_exec = os.path.join(sys.prefix, 'bin', 'python.exe')
+    target = os.path.join(sys.prefix, 'lib', 'site-packages')
+    subprocess.call([py_exec, '-m', 'pip', 'install', '--upgrade', 'pyserial', '-t', target])
+else:
     py_exec = str(sys.executable)
-    subprocess.call([py_exec, "-m", "pip", "install", "--upgrade", "pip"])
-    subprocess.call([py_exec, "-m", "pip", "install", "pyserial"])
-    import serial
+    modules = (subprocess.check_output([py_exec, "-m", "pip", "list"])).decode("UTF-8")
+    if not ("pyserial" in modules):
+        subprocess.call([py_exec, "-m", "pip", "install", "pyserial"])
+import serial
 import proto
 
 json_url = "https://docs.geoscan.aero/ru/beta-1/_downloads/e095007f59309ec01db50632ee4852b5/config.json"
@@ -253,19 +256,22 @@ class Loader:
 
     connected = None
 
-    def __init__(self, connection_callback=None, auto_connect: bool = True):
+    def __init__(self, addons_path, connection_callback=None, auto_connect: bool = True):
+        data = None
         try:
             with urllib.request.urlopen(json_url, context=ssl.create_default_context(cafile=certifi.where()),
                                         timeout=5) as url:
                 data = json.load(url)
                 print("Json loaded from url")
-                f = open("config.json", 'w')
+                f = open(addons_path + "/addons/config.json", 'w')
                 json.dump(data, f)
                 f.close()
         except urllib.error.URLError:
-            f = open("config.json", 'r')
+            f = open(addons_path + "/addons/config.json", 'r')
             data = json.load(f)
             f.close()
+        except Exception as e:
+            print(e)
         self.actual_ap_fw_version = data["ap_fw"]
         self.params_gps = data["params"]["gps"]
         self.params_lps = data["params"]["lps"]
@@ -358,10 +364,6 @@ class Loader:
         if self.connected:
             board_number = self.hub.getProtocolInfo()[2]
             return board_number
-
-    # def test2(self):
-    #     self.hub.getParamList()
-    #     print(self.hub.parameters)
 
     def get_ap_firmware_version(self):
         if self.connected:

@@ -4,7 +4,6 @@ import bpy
 from bpy_extras.io_utils import ExportHelper
 from bpy.types import Operator, Panel, WindowManager
 from bpy.props import StringProperty, BoolProperty, FloatProperty, IntProperty, EnumProperty
-import os
 import math
 import struct
 import threading
@@ -133,7 +132,12 @@ LANGUAGE_PACK_ENGLISH = {
     "speed_exceeded_error": "Speed exceeded on frame %d on drone %s. speed: %.2f m/s",
     "distance_underestimated_error": "Distance less than minimums on frame %d on drones  %s & %s",
     "miss_color_error": "No color found on %s on frame %d",
-    "export_succeed": "GeoScan show is better than urs!",
+    "fw_version_unmatched_error": "Actual firmware version ({}) is higher than current ({})",
+    "params_loading_error": "Params loading error %s",
+    "binaries_loading_error": "Loading show error %s",
+    "export_succeed": "GeoScan show done!",
+    "params_uploaded_successfully": "Params uploaded successfully",
+    "binaries_uploaded_successfully": "Loading show done for Pioneer %d",
     "SystemProperties": "GeoScan System properties",
     "ConfigProperties": "GeoScan Show",
     "ConnectionPanel": "GeoScan Pioneer connection",
@@ -169,7 +173,12 @@ LANGUAGE_PACK_RUSSIAN = {
     "speed_exceeded_error": "Скорость превышена на кадре %d дроном %s. скорость: %.2f м/с",
     "distance_underestimated_error": "Расстояние меньше минимального на кадре %d между дронами  %s и %s",
     "miss_color_error": "Не найден цвет у %s на кадре %d",
+    "fw_version_unmatched_error": "Актуальная версия прошивки ({}) выше текущей ({})",
+    "params_loading_error": "Ошибка загрузки параметров %s",
+    "binaries_loading_error": "Ошибка загрузки шоу %s",
     "export_succeed": "GeoScan шоу успешно создано",
+    "params_uploaded_successfully": "Параметры успешно загружены",
+    "binaries_uploaded_successfully": "Шоу загружено в Пионер %d",
     "SystemProperties": "GeoScan Системные параметры",
     "ConfigProperties": "GeoScan Шоу",
     "ConnectionPanel": "GeoScan Подключение к дрону",
@@ -438,14 +447,22 @@ class UploadNavSystemParams(Operator):
 
     def execute(self, context):
         if self.loader:
+            if self.loader.get_ap_firmware_version() < self.loader.actual_ap_fw_version:
+                self.report({"ERROR"},
+                            (LANGUAGE_PACK.get(context.scene.language)).get("fw_version_unmatched_error").format(
+                                self.loader.actual_ap_fw_version, self.loader.get_ap_firmware_version()))
+                context.scene.upload_allowed = False
+                return {"FINISHED"}
             try:
                 if context.scene.position_system:
                     self.loader.upload_gps_params()
                 else:
                     self.loader.upload_lps_params()
                 context.scene.upload_allowed = True
+                self.report({"INFO"}, (LANGUAGE_PACK.get(context.scene.language)).get("params_uploaded_successfully"))
             except Exception as e:
-                self.report({"ERROR"}, str(e))
+                self.report({"ERROR"},
+                            (LANGUAGE_PACK.get(context.scene.language)).get("params_loading_error") % str(e))
                 context.scene.upload_allowed = False
         return {"FINISHED"}
 
@@ -458,7 +475,33 @@ class UploadFilesToPioneer(Operator):
     def execute(self, context):
         scene = context.scene
         if scene.upload_allowed:
-            pass
+            objects = context.visible_objects
+            pioneers = []
+            if context.scene.using_name_filter:
+                for pioneers_obj in objects:
+                    if scene.drones_name.lower() in pioneers_obj.name.lower():
+                        pioneers.append(pioneers_obj)
+            else:
+                pioneers = objects
+
+            pioneer = pioneers[scene.board_number]
+            coords_array, colors_array, faults = self.prepare_export_arrays(pioneer, scene)
+            if not faults:
+                if self.position_system:
+                    binary = self.write_to_bin(coords_array, colors_array,
+                                               [self.lat_offset, self.lon_offset])
+                else:
+                    binary = self.write_to_bin(coords_array, colors_array,
+                                               [self.x_offset, self.y_offset])
+            else:
+                return {"CANCELLED"}
+            try:
+                self.loader.upload_bin(binary)
+                scene.board_number += 1
+                self.report({"INFO"}, (LANGUAGE_PACK.get(context.scene.language)).get("binaries_uploaded_successfully"))
+            except Exception as e:
+                self.report({"ERROR"},
+                            (LANGUAGE_PACK.get(context.scene.language)).get("binaries_loading_error") % str(e))
         return {"FINISHED"}
 
     def prepare_export_arrays(self, pioneer, scene):
@@ -482,7 +525,7 @@ class UploadFilesToPioneer(Operator):
         return coords_array, colors_array, faults
 
     @staticmethod
-    def write_to_bin(droneNum, coords_array, colors_array, filepath, origin, to_file: bool = True):
+    def write_to_bin(coords_array, colors_array, origin):
         HeaderFormat = '<BLBBBBBBBBHHfffff'
         size = struct.calcsize(HeaderFormat)
         meta_data = {
@@ -543,7 +586,7 @@ class UploadFilesToPioneer(Operator):
         return binary
 
     @staticmethod
-    def write_to_bin_old(droneNum, coords_array, colors_array, filepath, origin, to_file: bool = True):
+    def write_to_bin_old(coords_array, colors_array, origin):
         headerFormat = "<BBBBBBHHfffff"
         size = struct.calcsize(headerFormat)
         meta_data = {
@@ -875,7 +918,7 @@ def register():
     for cls in classes:
         bpy.utils.register_class(cls)
 
-    loader = Loader(connection_state_handler)
+    loader = Loader(bpy.utils.user_resource('SCRIPTS'), connection_state_handler)
     time.sleep(1)
     for loader_cls in classes_loader:
         loader_cls.loader = loader

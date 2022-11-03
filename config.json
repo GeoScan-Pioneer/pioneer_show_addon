@@ -1,5 +1,5 @@
 {
-  "ap_fw": 8522,
+  "ap_fw": 8512,
   "params": {
     "gps": {
       "BoardPioneer_module_gnss": 1,
