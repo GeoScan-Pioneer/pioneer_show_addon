@@ -2,6 +2,7 @@
   "ap_fw": 8512,
   "params": {
     "gps": {
+      "BoardPioneer_scriptDelayMs": 5000,
       "BoardPioneer_module_gnss": 1,
       "BoardPioneer_module_ultrasonic": 0,
       "Copter_pos_vMax": 1.5,
@@ -13,6 +14,7 @@
       "Flight_com_navSystem": 0
     },
     "lps": {
+      "BoardPioneer_scriptDelayMs": 5000,
       "BoardPioneer_module_gnss": 0,
       "BoardPioneer_module_ultrasonic": 1,
       "Copter_pos_vMax": 0.8,
