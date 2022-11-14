@@ -13,7 +13,6 @@ if sys.platform.startswith('win'):
     sys.path.append(bpy.utils.user_resource('SCRIPTS') + "/addons/win/")
 else:
     sys.path.append(bpy.utils.user_resource('SCRIPTS') + "/addons/linux/")
-print(sys.path)
 from loader import Loader
 
 bl_info = {
@@ -142,6 +141,7 @@ LANGUAGE_PACK_ENGLISH = {
     "fw_version_unmatched_error": "Actual firmware version ({}) is higher than current ({})",
     "params_loading_error": "Params loading error %s",
     "binaries_loading_error": "Loading show error %s",
+    "binaries_drone_number_error": "Drone number %d exceeded drones amount of drones on scene",
     "export_succeed": "GeoScan show done!",
     "params_uploaded_successfully": "Params uploaded successfully",
     "binaries_uploaded_successfully": "Loading show done for Pioneer %d",
@@ -183,6 +183,7 @@ LANGUAGE_PACK_RUSSIAN = {
     "fw_version_unmatched_error": "Актуальная версия прошивки ({}) выше текущей ({})",
     "params_loading_error": "Ошибка загрузки параметров %s",
     "binaries_loading_error": "Ошибка загрузки шоу %s",
+    "binaries_drone_number_error": "Номер дрона %d превышает общее число дронов на сцене",
     "export_succeed": "GeoScan шоу успешно создано",
     "params_uploaded_successfully": "Параметры успешно загружены",
     "binaries_uploaded_successfully": "Шоу загружено в Пионер %d",
@@ -492,8 +493,11 @@ class UploadFilesToPioneer(Operator):
                         pioneers.append(pioneers_obj)
             else:
                 pioneers = objects
-
-            pioneer = pioneers[scene.board_number]
+            if scene.board_number == len(pioneers):
+                self.report({"ERROR"}, (LANGUAGE_PACK.get(context.scene.language)).get(
+                    "binaries_drone_number_error") % scene.board_number)
+                return {"CANCELLED"}
+            pioneer = pioneers[scene.board_number - 1]
             coords_array, colors_array, faults = self.prepare_export_arrays(pioneer, scene)
             if not faults:
                 if scene.position_system:
@@ -505,10 +509,11 @@ class UploadFilesToPioneer(Operator):
             else:
                 return {"CANCELLED"}
             try:
+                self.loader.upload_lua_script(bpy.utils.user_resource('SCRIPTS') + "/addons/" + "pioneer-show.out")
                 self.loader.upload_bin(binary)
-                scene.board_number += 1
                 self.report({"INFO"}, (LANGUAGE_PACK.get(context.scene.language)).get(
                     "binaries_uploaded_successfully") % scene.board_number)
+                scene.board_number += 1
             except Exception as e:
                 self.report({"ERROR"},
                             (LANGUAGE_PACK.get(context.scene.language)).get("binaries_loading_error") % str(e))
