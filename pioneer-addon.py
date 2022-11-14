@@ -8,6 +8,7 @@ import math
 import struct
 import threading
 import sys
+
 if sys.platform.startswith('win'):
     sys.path.append(bpy.utils.user_resource('SCRIPTS') + "/addons/win/")
 else:
@@ -453,23 +454,25 @@ class UploadNavSystemParams(Operator):
 
     def execute(self, context):
         if self.loader:
-            if self.loader.get_ap_firmware_version() < self.loader.actual_ap_fw_version:
-                self.report({"ERROR"},
-                            (LANGUAGE_PACK.get(context.scene.language)).get("fw_version_unmatched_error").format(
-                                self.loader.actual_ap_fw_version, self.loader.get_ap_firmware_version()))
-                context.scene.upload_allowed = False
-                return {"FINISHED"}
-            try:
-                if context.scene.position_system:
-                    self.loader.upload_gps_params()
-                else:
-                    self.loader.upload_lps_params()
-                context.scene.upload_allowed = True
-                self.report({"INFO"}, (LANGUAGE_PACK.get(context.scene.language)).get("params_uploaded_successfully"))
-            except Exception as e:
-                self.report({"ERROR"},
-                            (LANGUAGE_PACK.get(context.scene.language)).get("params_loading_error") % str(e))
-                context.scene.upload_allowed = False
+            if self.loader.connected:
+                if self.loader.get_ap_firmware_version() < self.loader.actual_ap_fw_version:
+                    self.report({"ERROR"},
+                                (LANGUAGE_PACK.get(context.scene.language)).get("fw_version_unmatched_error").format(
+                                    self.loader.actual_ap_fw_version, self.loader.get_ap_firmware_version()))
+                    context.scene.upload_allowed = False
+                    return {"FINISHED"}
+                try:
+                    if context.scene.position_system:
+                        self.loader.upload_gps_params()
+                    else:
+                        self.loader.upload_lps_params()
+                    context.scene.upload_allowed = True
+                    self.report({"INFO"},
+                                (LANGUAGE_PACK.get(context.scene.language)).get("params_uploaded_successfully"))
+                except Exception as e:
+                    self.report({"ERROR"},
+                                (LANGUAGE_PACK.get(context.scene.language)).get("params_loading_error") % str(e))
+                    context.scene.upload_allowed = False
         return {"FINISHED"}
 
 
@@ -750,8 +753,13 @@ class ConnectionPanel(Panel):
                      text=(LANGUAGE_PACK.get(context.scene.language)).get("DisconnectPioneer"))
 
         row = col.row()
-        row.operator(UploadNavSystemParams.bl_idname,
-                     text=(LANGUAGE_PACK.get(context.scene.language)).get("UploadNavSystemParams"))
+        _upload_params = row.row()
+        _upload_params.enabled = False
+        if self.loader:
+            if self.loader.connected:
+                _upload_params.enabled = True
+        _upload_params.operator(UploadNavSystemParams.bl_idname,
+                                text=(LANGUAGE_PACK.get(context.scene.language)).get("UploadNavSystemParams"))
 
         _upload_binaries = row.row()
         _upload_binaries.enabled = scene.upload_allowed and scene.export_allowed

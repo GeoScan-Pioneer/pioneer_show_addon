@@ -93,7 +93,7 @@ class SerialMaster:
             self.messenger = proto.Messenger(self.stream, os.path.join('cache'))
             self.hub = self.messenger.hub
         except Exception:
-            print('Failed to open port {}. Try another port and reconnect the droneNum'.format(serial))
+            print('Failed to open port {}. Try another port and reconnect'.format(serial))
 
     def __port_handler(self):
         connection_thread = None
