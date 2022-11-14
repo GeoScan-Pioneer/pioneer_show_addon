@@ -16,15 +16,13 @@ if sys.platform.startswith('win'):
     py_exec = os.path.join(sys.prefix, 'bin', 'python.exe')
     target = os.path.join(sys.prefix, 'lib', 'site-packages')
     subprocess.call([py_exec, '-m', 'pip', 'install', '--upgrade', 'pyserial', '-t', target])
-    import serial
-    import win.proto
 else:
     py_exec = str(sys.executable)
     modules = (subprocess.check_output([py_exec, "-m", "pip", "list"])).decode("UTF-8")
     if not ("pyserial" in modules):
         subprocess.call([py_exec, "-m", "pip", "install", "pyserial"])
-    import serial
-    import linux.proto
+import serial
+import proto
 
 json_url = "https://docs.geoscan.aero/ru/beta-1/_downloads/e095007f59309ec01db50632ee4852b5/config.json"
 

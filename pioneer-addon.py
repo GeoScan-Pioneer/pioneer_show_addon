@@ -7,6 +7,12 @@ from bpy.props import StringProperty, BoolProperty, FloatProperty, IntProperty, 
 import math
 import struct
 import threading
+import sys
+if sys.platform.startswith('win'):
+    sys.path.append(bpy.utils.user_resource('SCRIPTS') + "/addons/win/")
+else:
+    sys.path.append(bpy.utils.user_resource('SCRIPTS') + "/addons/linux/")
+print(sys.path)
 from loader import Loader
 
 bl_info = {
