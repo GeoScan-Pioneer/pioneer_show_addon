@@ -270,6 +270,7 @@ class Loader:
             f = open(addons_path + "/addons/config.json", 'r')
             data = json.load(f)
             f.close()
+            print("Json loaded from locals")
         except Exception as e:
             print(e)
         self.actual_ap_fw_version = data["ap_fw"]
