@@ -68,6 +68,8 @@ local function checkOriginPosition()
         if (math.abs(x1 - x2) <= dist_check_position) and math.abs(y1 - y2) <= dist_check_position then
             changeColor({ 0, 1, 0 }) -- green
             onPosition = true
+        else
+            changeColor({ 1, 0, 0 }) -- red
         end
         selfState = state.idle
     end
@@ -112,7 +114,7 @@ local function rcHandler()
     -- ch8(SWA)=[-1,-1,1]	ch7(SWB)=[0,1,2] 	ch5(SWC)=[0,1,2] 	ch6(SWD)=[1,1,0]
     -- ch1(RH)=[-1..1]		ch2(RV)=[1..-1]		ch2(LV)=[0..1]		ch4(LH)=[1..-1]
     _, _, _, _, SWC, SWD, SWB, SWA = Sensors.rc()
-    if SWB == 2 and onPosition and GNSSReady then
+    if SWB == 2 and onPosition and GNSSReady and selfState == state.idle then
         syncTime = getNearestTime(15)
         selfState = state.start
         Timer.callAtGlobal(syncTime + 1, function()
@@ -131,6 +133,8 @@ local function rcHandler()
         getGNSSState()
     elseif SWD == 0 then
         checkOriginPosition()
+    elseif selfState == state.idle then
+        changeColor({ 0, 0, 0 }) -- no color
     end
 end
 
@@ -146,6 +150,9 @@ local function init()
         if originLat ~= nil and originLon ~= nil and originAlt ~= nil then
             ap.setGpsOrigin(originLat, originLon, originAlt)
         end
+    elseif navSystem == 1 then
+        -- LPS
+        GNSSReady = true
     end
 end
 
