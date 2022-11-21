@@ -15,10 +15,12 @@ import os
 if sys.platform.startswith('win'):
     py_exec = os.path.join(sys.prefix, 'bin', 'python.exe')
     target = os.path.join(sys.prefix, 'lib', 'site-packages')
+    subprocess.call([py_exec, '-m', 'pip', 'install', '--upgrade', 'pip', '-t', target])
     subprocess.call([py_exec, '-m', 'pip', 'install', '--upgrade', 'pyserial', '-t', target])
 else:
     py_exec = str(sys.executable)
     modules = (subprocess.check_output([py_exec, "-m", "pip", "list"])).decode("UTF-8")
+    subprocess.call([py_exec, '-m', 'pip', 'install', '--upgrade', 'pip'])
     if not ("pyserial" in modules):
         subprocess.call([py_exec, "-m", "pip", "install", "pyserial"])
 import serial
@@ -398,6 +400,9 @@ class Loader:
         for (_, field) in Ublox.fields.items():
             if field.name in self.fields_gps.keys():
                 field.write(self.fields_gps.get(field.name), self.field_written_callback)
+
+    def set_board_number(self, board_number):
+        self.set_param(name="Board_number", value=board_number)
 
     @staticmethod
     def field_written_callback(_, result, value):

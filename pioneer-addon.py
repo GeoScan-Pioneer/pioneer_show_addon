@@ -90,7 +90,7 @@ test_items = [
 
 PIONEER_PROPS = [
     ("board_number", IntProperty(name="Board_number",
-                                 default=1)),
+                                 default=1, min=1)),
     ("available_ports", EnumProperty(items=items_ports_callback, name="Available ports", default=None)),
     ("auto_connection", BoolProperty(name="Auto port connection", default=True, update=auto_connection_set_callback)),
 ]
@@ -265,14 +265,14 @@ class ExportLuaBinaries(Operator, ExportHelper):
 
         pioneer_id = 1
         for pioneer in pioneers:
-            coords_array, colors_array, faults = self.prepare_export_arrays(pioneer)
+            coords_array, colors_array, faults = self.prepare_export_arrays(pioneer, scene)
             if not faults:
-                if self.position_system:
+                if scene.position_system:
                     self.write_to_bin(pioneer_id, coords_array, colors_array, self.filepath,
-                                      [self.lat_offset, self.lon_offset])
+                                      [scene.lat_offset, scene.lon_offset])
                 else:
                     self.write_to_bin(pioneer_id, coords_array, colors_array, self.filepath,
-                                      [self.x_offset, self.y_offset])
+                                      [scene.x_offset, scene.y_offset])
             else:
                 return {"CANCELLED"}
             pioneer_id += 1
@@ -287,9 +287,9 @@ class ExportLuaBinaries(Operator, ExportHelper):
             scene.frame_set(frame)
             if frame % int(scene.render.fps / scene.positionFreq) == 0:
                 x, y, z = pioneer.matrix_world.to_translation()
-                coords_array.append((x + self.x_offset * (not self.position_system),
-                                     y + self.y_offset * (not self.position_system), z + self.z_offset) * (
-                                        not self.position_system))
+                coords_array.append((x + scene.x_offset * (not scene.position_system),
+                                     y + scene.y_offset * (not scene.position_system), z + scene.z_offset) * (
+                                        not scene.position_system))
             if frame % int(scene.render.fps / scene.colorFreq) == 0:
                 r, g, b, _ = pioneer.active_material.diffuse_color
                 if r is None:
@@ -493,7 +493,7 @@ class UploadFilesToPioneer(Operator):
                         pioneers.append(pioneers_obj)
             else:
                 pioneers = objects
-            if scene.board_number == len(pioneers):
+            if scene.board_number == len(pioneers) + 1:
                 self.report({"ERROR"}, (LANGUAGE_PACK.get(context.scene.language)).get(
                     "binaries_drone_number_error") % scene.board_number)
                 return {"CANCELLED"}
@@ -510,6 +510,7 @@ class UploadFilesToPioneer(Operator):
                 return {"CANCELLED"}
             try:
                 self.loader.upload_lua_script(bpy.utils.user_resource('SCRIPTS') + "/addons/" + "pioneer-show.out")
+                self.loader.set_board_number(scene.board_number - 1)
                 self.loader.upload_bin(binary)
                 self.report({"INFO"}, (LANGUAGE_PACK.get(context.scene.language)).get(
                     "binaries_uploaded_successfully") % scene.board_number)

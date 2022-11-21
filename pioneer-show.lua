@@ -1,6 +1,7 @@
 local unpack = table.unpack
-local ledNumber = 5
+local ledNumber = 20
 local leds = Ledbar.new(ledNumber)
+local numRows = 5
 
 local state = {
     idle = 0,
@@ -23,6 +24,7 @@ local isMotorStarted = false
 local navSystem = getNavSystem()
 local selfState = state.idle
 local syncTime = 0
+local dist_check_position = 0.5
 
 local function changeColor(col)
     for i = 0, ledNumber - 1, 1 do
@@ -36,6 +38,24 @@ local function getNearestTime(sec)
     elseif navSystem == 1 then
         return sec * (math.floor((time() + deltaTime()) / sec) + 1)
     end
+end
+
+local function snake()
+    selfState = state.inCheck
+    local blinkTime = 0.3
+    local snakeTime = getNearestTime(10)
+    changeColor({ 0, 1, 1 })
+    Timer.callAtGlobal(snakeTime, function()  changeColor({ 0, 0, 0 }) end)
+    Timer.callAtGlobal(snakeTime + (boardNumber % numRows) * blinkTime, function ()
+		changeColor({ 1, 1, 1 })
+		end)
+	Timer.callAtGlobal(snakeTime + (boardNumber%numRows + 1)*blinkTime, function () changeColor({ 0, 0, 0 }) end)
+	Timer.callAtGlobal(snakeTime + (numRows+1)*blinkTime + (boardNumber/numRows-(boardNumber/numRows)%1)*blinkTime, function ()
+		changeColor({ 1, 1, 1 }) end)
+	Timer.callAtGlobal(snakeTime + (numRows+1)*blinkTime + (boardNumber/numRows-(boardNumber/numRows)%1+1)*blinkTime, function ()
+        selfState	= state.idle
+        changeColor({ 0, 0, 0})
+        end)
 end
 
 local function getGNSSState()
@@ -81,10 +101,28 @@ local function emergency()
     end)
 end
 
-local function positionLoop(startTime)
-    if idPoint == 1 then
-        colorLoop(startTime + periodPositions, 0, 0)
+function landing()
+    selfState = state.landing
+    ap.push(Ev.MCE_LANDING)
+end
+
+local function colorLoop(startTime)
+    if selfState == state.flight and idColor < numColors then
+        local colorTime = (idColor + 1) * periodColors
+        changeColor({NandLua.readColor(idColor)})
+		idColor = idColor + 1
+        Timer.callAtGlobal(startTime + colorTime, function()
+            colorLoop(startTime)
+        end)
     end
+end
+
+local function positionLoop(startTime)
+
+	if idPoint == 0 then
+        colorLoop(startTime)
+    end
+
     local pointTime = (idPoint + 1) * periodPositions
     if selfState == state.flight and idPoint < numPositions then
         local x, y, z = NandLua.readPosition(idPoint)
@@ -96,16 +134,7 @@ local function positionLoop(startTime)
     elseif selfState == state.flight then
         Timer.callLater(1, function()
             landing()
-        end)
-    end
-end
 
-local function colorLoop(startTime)
-    if selfState == state.flight and idColor < numColors then
-        local colorTime = (idColor + 1) * periodColors
-        changeColor(NandLua.readColor(idColor))
-        Timer.callAtGlobal(startTime + colorTime, function()
-            colorLoop(startTime)
         end)
     end
 end
@@ -117,31 +146,32 @@ local function rcHandler()
     if SWB == 2 and onPosition and GNSSReady and selfState == state.idle then
         syncTime = getNearestTime(15)
         selfState = state.start
-        Timer.callAtGlobal(syncTime + 1, function()
-            ap.push(Ev.MCE_PREFLIGHT)
-        end)
+
+        Timer.callAtGlobal(syncTime + 1, function() ap.push(Ev.MCE_PREFLIGHT) end)
+
         Timer.callAtGlobal(syncTime + 3, function()
             if selfState == state.start and isMotorStarted then
                 selfState = state.takeoff
+                ap.push(Ev.MCE_TAKEOFF)
             end
-            ap.push(Ev.MCE_TAKEOFF)
+
         end)
-        Timer.callAtGlobal(syncTime + 10 - 0.16, function()
-            positionLoop(syncTime + 10 - 0.16)
-        end)
+
+        Timer.callAtGlobal(syncTime + 15 - 0.16, function() positionLoop(syncTime + 15 - 0.16) end)
+    elseif SWD == 0 and SWC == 2 then
+        snake()
     elseif SWA == 1 and navSystem == 0 then
         getGNSSState()
+
     elseif SWD == 0 then
         checkOriginPosition()
+
     elseif selfState == state.idle then
         changeColor({ 0, 0, 0 }) -- no color
+
     end
 end
 
-function landing()
-    selfState = state.landing
-    ap.push(Ev.MCE_LANDING)
-end
 
 local function init()
     if navSystem == 0 then
@@ -160,19 +190,25 @@ function callback(event)
     if event == Ev.LOW_VOLTAGE2 then
         emergency()
         landing()
+
     elseif event == Ev.ENGINES_STARTED and selfState == state.start then
         isMotorStarted = true
+
     elseif event == Ev.TAKEOFF_COMPLETE and selfState == state.takeoff then
         selfState = state.flight
+
     elseif event == Ev.COPTER_LANDED and selfState == state.landing then
+		onPosition = false
         selfState = state.idle
+		idPoint = 0
+		changeColor({ 0, 0, 0 })
         isMotorStarted = false
     end
 
 end
 
 init()
-timerRC = Timer.new(0.1, function()
+timerRC = Timer.new(0.25, function()
     rcHandler()
 end)
 timerRC:start()
