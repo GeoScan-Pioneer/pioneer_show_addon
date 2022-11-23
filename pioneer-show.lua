@@ -45,17 +45,22 @@ local function snake()
     local blinkTime = 0.3
     local snakeTime = getNearestTime(10)
     changeColor({ 0, 1, 1 })
-    Timer.callAtGlobal(snakeTime, function()  changeColor({ 0, 0, 0 }) end)
-    Timer.callAtGlobal(snakeTime + (boardNumber % numRows) * blinkTime, function ()
-		changeColor({ 1, 1, 1 })
-		end)
-	Timer.callAtGlobal(snakeTime + (boardNumber%numRows + 1)*blinkTime, function () changeColor({ 0, 0, 0 }) end)
-	Timer.callAtGlobal(snakeTime + (numRows+1)*blinkTime + (boardNumber/numRows-(boardNumber/numRows)%1)*blinkTime, function ()
-		changeColor({ 1, 1, 1 }) end)
-	Timer.callAtGlobal(snakeTime + (numRows+1)*blinkTime + (boardNumber/numRows-(boardNumber/numRows)%1+1)*blinkTime, function ()
-        selfState	= state.idle
-        changeColor({ 0, 0, 0})
-        end)
+    Timer.callAtGlobal(snakeTime, function()
+        changeColor({ 0, 0, 0 })
+    end)
+    Timer.callAtGlobal(snakeTime + (boardNumber % numRows) * blinkTime, function()
+        changeColor({ 1, 1, 1 })
+    end)
+    Timer.callAtGlobal(snakeTime + (boardNumber % numRows + 1) * blinkTime, function()
+        changeColor({ 0, 0, 0 })
+    end)
+    Timer.callAtGlobal(snakeTime + (numRows + 1) * blinkTime + (boardNumber / numRows - (boardNumber / numRows) % 1) * blinkTime, function()
+        changeColor({ 1, 1, 1 })
+    end)
+    Timer.callAtGlobal(snakeTime + (numRows + 1) * blinkTime + (boardNumber / numRows - (boardNumber / numRows) % 1 + 1) * blinkTime, function()
+        selfState = state.idle
+        changeColor({ 0, 0, 0 })
+    end)
 end
 
 local function getGNSSState()
@@ -71,9 +76,19 @@ local function getGNSSState()
         elseif gnssRtk == 1 then
             changeColor({ 0, 0, 1 }) -- blue
             GNSSReady = true
+            local originLat, originLon, _ = NandLua.readPositionOrigin()
+            local _, _, originAlt = Sensors.gnssPosition()
+            if originLat ~= nil and originLon ~= nil and originAlt ~= nil then
+                ap.setGpsOrigin(originLat, originLon, originAlt)
+            end
         elseif gnssRtk == 2 then
             changeColor({ 0, 1, 0 }) -- green
             GNSSReady = true
+            local originLat, originLon, _ = NandLua.readPositionOrigin()
+            local _, _, originAlt = Sensors.gnssPosition()
+            if originLat ~= nil and originLon ~= nil and originAlt ~= nil then
+                ap.setGpsOrigin(originLat, originLon, originAlt)
+            end
         end
         selfState = state.idle
     end
@@ -109,8 +124,8 @@ end
 local function colorLoop(startTime)
     if selfState == state.flight and idColor < numColors then
         local colorTime = (idColor + 1) * periodColors
-        changeColor({NandLua.readColor(idColor)})
-		idColor = idColor + 1
+        changeColor({ NandLua.readColor(idColor) })
+        idColor = idColor + 1
         Timer.callAtGlobal(startTime + colorTime, function()
             colorLoop(startTime)
         end)
@@ -119,7 +134,7 @@ end
 
 local function positionLoop(startTime)
 
-	if idPoint == 0 then
+    if idPoint == 0 then
         colorLoop(startTime)
     end
 
@@ -147,7 +162,9 @@ local function rcHandler()
         syncTime = getNearestTime(15)
         selfState = state.start
 
-        Timer.callAtGlobal(syncTime + 1, function() ap.push(Ev.MCE_PREFLIGHT) end)
+        Timer.callAtGlobal(syncTime + 1, function()
+            ap.push(Ev.MCE_PREFLIGHT)
+        end)
 
         Timer.callAtGlobal(syncTime + 3, function()
             if selfState == state.start and isMotorStarted then
@@ -157,7 +174,9 @@ local function rcHandler()
 
         end)
 
-        Timer.callAtGlobal(syncTime + 15 - 0.16, function() positionLoop(syncTime + 15 - 0.16) end)
+        Timer.callAtGlobal(syncTime + 15 - 0.16, function()
+            positionLoop(syncTime + 15 - 0.16)
+        end)
     elseif SWD == 0 and SWC == 2 then
         snake()
     elseif SWA == 1 and navSystem == 0 then
@@ -172,14 +191,10 @@ local function rcHandler()
     end
 end
 
-
 local function init()
     if navSystem == 0 then
         -- GPS
-        local originLat, originLon, originAlt = NandLua.readPositionOrigin()
-        if originLat ~= nil and originLon ~= nil and originAlt ~= nil then
-            ap.setGpsOrigin(originLat, originLon, originAlt)
-        end
+        GNSSReady = false
     elseif navSystem == 1 then
         -- LPS
         GNSSReady = true
@@ -198,10 +213,10 @@ function callback(event)
         selfState = state.flight
 
     elseif event == Ev.COPTER_LANDED and selfState == state.landing then
-		onPosition = false
+        onPosition = false
         selfState = state.idle
-		idPoint = 0
-		changeColor({ 0, 0, 0 })
+        idPoint = 0
+        changeColor({ 0, 0, 0 })
         isMotorStarted = false
     end
 
