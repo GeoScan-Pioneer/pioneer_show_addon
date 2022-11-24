@@ -529,8 +529,8 @@ class UploadFilesToPioneer(Operator):
             if frame % int(scene.render.fps / scene.positionFreq) == 0:
                 x, y, z = pioneer.matrix_world.to_translation()
                 coords_array.append((x + scene.x_offset * (not scene.position_system),
-                                     y + scene.y_offset * (not scene.position_system), z + scene.z_offset) * (
-                                        not scene.position_system))
+                                     y + scene.y_offset * (not scene.position_system), z + scene.z_offset * (
+                                        not scene.position_system)))
             if frame % int(scene.render.fps / scene.colorFreq) == 0:
                 r, g, b, _ = pioneer.active_material.diffuse_color
                 if r is None:

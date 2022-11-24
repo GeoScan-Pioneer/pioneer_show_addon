@@ -392,27 +392,34 @@ class Loader:
         for param in self.params_lps.keys():
             self.set_param(name=param, value=self.params_lps.get(param))
 
+        self.restart_board()
         for hub_name in self.hubs_lps.keys():
-            if hub_name not in self.hub:
+            try:
+                hub = self.hub[hub_name]
+            except Exception:
                 continue
-            hub = self.hub[hub_name]
             fields = self.hubs_lps[hub_name]
             for (_, field) in hub.fields.items():
                 if field.name in fields.keys():
                     field.write(fields.get(field.name), self.field_written_callback)
+        self.restart_board()
 
     def upload_gps_params(self):
         for param in self.params_gps.keys():
             self.set_param(name=param, value=self.params_gps.get(param))
 
+        self.restart_board()
         for hub_name in self.hubs_gps.keys():
-            if hub_name not in self.hub:
+            try:
+                hub = self.hub[hub_name]
+            except Exception:
                 continue
-            hub = self.hub[hub_name]
             fields = self.hubs_gps[hub_name]
             for (_, field) in hub.fields.items():
                 if field.name in fields.keys():
+                    print(field.name)
                     field.write(fields.get(field.name), self.field_written_callback)
+        self.restart_board()
 
     def set_board_number(self, board_number):
         self.set_param(name="Board_number", value=board_number)
