@@ -278,8 +278,8 @@ class Loader:
         self.actual_ap_fw_version = data["ap_fw"]
         self.params_gps = data["params"]["gps"]
         self.params_lps = data["params"]["lps"]
-        self.fields_gps = data["fields"]["gps"]
-        self.fields_lps = data["fields"]["lps"]
+        self.hubs_gps = data["fields"]["gps"]
+        self.hubs_lps = data["fields"]["lps"]
 
         self.serial_master = SerialMaster(self.connect_callback, self.disconnect_callback,
                                           self.ports_update_callback,
@@ -392,14 +392,27 @@ class Loader:
         for param in self.params_lps.keys():
             self.set_param(name=param, value=self.params_lps.get(param))
 
+        for hub_name in self.hubs_lps.keys():
+            if hub_name not in self.hub:
+                continue
+            hub = self.hub[hub_name]
+            fields = self.hubs_lps[hub_name]
+            for (_, field) in hub.fields.items():
+                if field.name in fields.keys():
+                    field.write(fields.get(field.name), self.field_written_callback)
+
     def upload_gps_params(self):
         for param in self.params_gps.keys():
             self.set_param(name=param, value=self.params_gps.get(param))
 
-        Ublox = self.hub["Ublox"]
-        for (_, field) in Ublox.fields.items():
-            if field.name in self.fields_gps.keys():
-                field.write(self.fields_gps.get(field.name), self.field_written_callback)
+        for hub_name in self.hubs_gps.keys():
+            if hub_name not in self.hub:
+                continue
+            hub = self.hub[hub_name]
+            fields = self.hubs_gps[hub_name]
+            for (_, field) in hub.fields.items():
+                if field.name in fields.keys():
+                    field.write(fields.get(field.name), self.field_written_callback)
 
     def set_board_number(self, board_number):
         self.set_param(name="Board_number", value=board_number)

@@ -27,7 +27,11 @@
     }
   },
   "fields": {
-    "gps": {},
+    "gps": {
+      "Ublox": {
+        "defaultCapabilities": 28
+      }
+    },
     "lps": {}
   }
 }
