@@ -75,10 +75,10 @@ CONFIG_PROPS_NAV = [
                                default=0)),
     ("z_offset", FloatProperty(name="Limit of  speed (m/s)",
                                default=0)),
-    ("lon_offset", FloatProperty(name="Limit of  speed (m/s)",
-                                 default=30.347196)),
-    ("lat_offset", FloatProperty(name="Limit of  speed (m/s)",
-                                 default=60.010663)),
+    ("lon_offset", StringProperty(name="Limit of  speed (m/s)",
+                                  default="30.347196")),
+    ("lat_offset", StringProperty(name="Limit of  speed (m/s)",
+                                  default="60.010663")),
 ]
 
 test_items = [
@@ -142,6 +142,7 @@ LANGUAGE_PACK_ENGLISH = {
     "params_loading_error": "Params loading error %s",
     "binaries_loading_error": "Loading show error %s",
     "binaries_drone_number_error": "Drone number %d exceeded drones amount of drones on scene",
+    "latlon_not_float": "Given cooedinates are wrong, please ensure data format XX.XXXXXXX",
     "export_succeed": "GeoScan show done!",
     "params_uploaded_successfully": "Params uploaded successfully",
     "binaries_uploaded_successfully": "Loading show done for Pioneer %d",
@@ -184,6 +185,7 @@ LANGUAGE_PACK_RUSSIAN = {
     "params_loading_error": "Ошибка загрузки параметров %s",
     "binaries_loading_error": "Ошибка загрузки шоу %s",
     "binaries_drone_number_error": "Номер дрона %d превышает общее число дронов на сцене",
+    "latlon_not_float": "Указанные кординаты некорректны, проверьте формат введенных данных XX.XXXXXXX",
     "export_succeed": "GeoScan шоу успешно создано",
     "params_uploaded_successfully": "Параметры успешно загружены",
     "binaries_uploaded_successfully": "Шоу загружено в Пионер %d",
@@ -254,6 +256,10 @@ class ExportLuaBinaries(Operator, ExportHelper):
 
     def execute(self, context):
         scene = context.scene
+        if scene.position_system:
+            if not (self.is_float(scene.lat_offset) and self.is_float(scene.lon_offset)):
+                self.report({"ERROR"}, (LANGUAGE_PACK.get(context.scene.language)).get("latlon_not_float"))
+                return {"CANCELLED"}
         objects = context.visible_objects
         pioneers = []
         if context.scene.using_name_filter:
@@ -269,7 +275,7 @@ class ExportLuaBinaries(Operator, ExportHelper):
             if not faults:
                 if scene.position_system:
                     self.write_to_bin(pioneer_id, coords_array, colors_array, self.filepath,
-                                      [scene.lat_offset, scene.lon_offset])
+                                      [float(scene.lat_offset), float(scene.lon_offset)])
                 else:
                     self.write_to_bin(pioneer_id, coords_array, colors_array, self.filepath,
                                       [scene.x_offset, scene.y_offset])
@@ -418,6 +424,14 @@ class ExportLuaBinaries(Operator, ExportHelper):
 
             f.close()
 
+    @staticmethod
+    def is_float(num):
+        try:
+            float(num)
+            return True
+        except ValueError:
+            return False
+
 
 class ConnectPioneer(Operator):
     bl_idname = "show.connect_pioneer"
@@ -485,9 +499,13 @@ class UploadFilesToPioneer(Operator):
     def execute(self, context):
         scene = context.scene
         if scene.upload_allowed:
+            if scene.position_system:
+                if not (self.is_float(scene.lat_offset) and self.is_float(scene.lon_offset)):
+                    self.report({"ERROR"}, (LANGUAGE_PACK.get(context.scene.language)).get("latlon_not_float"))
+                    return {"CANCELLED"}
             objects = context.visible_objects
             pioneers = []
-            if context.scene.using_name_filter:
+            if scene.using_name_filter:
                 for pioneers_obj in objects:
                     if scene.drones_name.lower() in pioneers_obj.name.lower():
                         pioneers.append(pioneers_obj)
@@ -502,7 +520,7 @@ class UploadFilesToPioneer(Operator):
             if not faults:
                 if scene.position_system:
                     binary = self.write_to_bin(coords_array, colors_array,
-                                               [scene.lat_offset, scene.lon_offset])
+                                               [float(scene.lat_offset), float(scene.lon_offset)])
                 else:
                     binary = self.write_to_bin(coords_array, colors_array,
                                                [scene.x_offset, scene.y_offset])
@@ -512,6 +530,7 @@ class UploadFilesToPioneer(Operator):
                 self.loader.upload_lua_script(bpy.utils.user_resource('SCRIPTS') + "/addons/" + "pioneer-show.out")
                 self.loader.set_board_number(scene.board_number - 1)
                 self.loader.upload_bin(binary)
+                self.loader.restart_board()
                 self.report({"INFO"}, (LANGUAGE_PACK.get(context.scene.language)).get(
                     "binaries_uploaded_successfully") % scene.board_number)
                 scene.board_number += 1
@@ -530,7 +549,7 @@ class UploadFilesToPioneer(Operator):
                 x, y, z = pioneer.matrix_world.to_translation()
                 coords_array.append((x + scene.x_offset * (not scene.position_system),
                                      y + scene.y_offset * (not scene.position_system), z + scene.z_offset * (
-                                        not scene.position_system)))
+                                         not scene.position_system)))
             if frame % int(scene.render.fps / scene.colorFreq) == 0:
                 r, g, b, _ = pioneer.active_material.diffuse_color
                 if r is None:
@@ -654,6 +673,13 @@ class UploadFilesToPioneer(Operator):
 
         return binary
 
+    @staticmethod
+    def is_float(num):
+        try:
+            float(num)
+            return True
+        except ValueError:
+            return False
 
 class ConfigurePanel(Panel):
     bl_idname = 'VIEW3D_PT_geoscan_config_panel'

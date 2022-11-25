@@ -41,26 +41,28 @@ local function getNearestTime(sec)
 end
 
 local function snake()
-    selfState = state.inCheck
-    local blinkTime = 0.3
-    local snakeTime = getNearestTime(10)
-    changeColor({ 0, 1, 1 })
-    Timer.callAtGlobal(snakeTime, function()
-        changeColor({ 0, 0, 0 })
-    end)
-    Timer.callAtGlobal(snakeTime + (boardNumber % numRows) * blinkTime, function()
-        changeColor({ 1, 1, 1 })
-    end)
-    Timer.callAtGlobal(snakeTime + (boardNumber % numRows + 1) * blinkTime, function()
-        changeColor({ 0, 0, 0 })
-    end)
-    Timer.callAtGlobal(snakeTime + (numRows + 1) * blinkTime + (boardNumber / numRows - (boardNumber / numRows) % 1) * blinkTime, function()
-        changeColor({ 1, 1, 1 })
-    end)
-    Timer.callAtGlobal(snakeTime + (numRows + 1) * blinkTime + (boardNumber / numRows - (boardNumber / numRows) % 1 + 1) * blinkTime, function()
-        selfState = state.idle
-        changeColor({ 0, 0, 0 })
-    end)
+    if selfState == state.idle then
+        selfState = state.inCheck
+        local blinkTime = 0.3
+        local snakeTime = getNearestTime(10)
+        changeColor({ 0, 1, 1 })
+        Timer.callAtGlobal(snakeTime, function()
+            changeColor({ 0, 0, 0 })
+        end)
+        Timer.callAtGlobal(snakeTime + (boardNumber % numRows) * blinkTime, function()
+            changeColor({ 1, 1, 1 })
+        end)
+        Timer.callAtGlobal(snakeTime + (boardNumber % numRows + 1) * blinkTime, function()
+            changeColor({ 0, 0, 0 })
+        end)
+        Timer.callAtGlobal(snakeTime + (numRows + 1) * blinkTime + (boardNumber / numRows - (boardNumber / numRows) % 1) * blinkTime, function()
+            changeColor({ 1, 1, 1 })
+        end)
+        Timer.callAtGlobal(snakeTime + (numRows + 1) * blinkTime + (boardNumber / numRows - (boardNumber / numRows) % 1 + 1) * blinkTime, function()
+            selfState = state.idle
+            changeColor({ 0, 0, 0 })
+        end)
+    end
 end
 
 local function getGNSSState()
@@ -73,6 +75,11 @@ local function getGNSSState()
             changeColor({ 1, 1, 0 }) -- yellow
         elseif gnssRtk == 0 then
             changeColor({ 1, 0, 1 }) -- purple
+            local originLat, originLon, _ = NandLua.readPositionOrigin()
+            local _, _, originAlt = Sensors.gnssPosition()
+            if originLat ~= nil and originLon ~= nil and originAlt ~= nil then
+                ap.setGpsOrigin(originLat, originLon, originAlt)
+            end
         elseif gnssRtk == 1 then
             changeColor({ 0, 0, 1 }) -- blue
             GNSSReady = true
