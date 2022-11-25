@@ -97,14 +97,18 @@ end
 local function checkOriginPosition()
     if selfState == state.idle then
         selfState = state.inCheck
-        local lpsPosition = Sensors.lpsPosition
-        local x1, y1, z1 = lpsPosition() -- current position
-        local x2, y2, z2 = NandLua.readPosition(curr_ind_point) -- origin position
-        if (math.abs(x1 - x2) <= dist_check_position) and math.abs(y1 - y2) <= dist_check_position then
-            changeColor({ 0, 1, 0 }) -- green
-            onPosition = true
-        else
-            changeColor({ 1, 0, 0 }) -- red
+        if navSystem == 1 then
+            local lpsPosition = Sensors.lpsPosition
+            local x1, y1, z1 = lpsPosition() -- current position
+            local x2, y2, z2 = NandLua.readPosition(curr_ind_point) -- origin position
+            if (math.abs(x1 - x2) <= dist_check_position) and math.abs(y1 - y2) <= dist_check_position then
+                changeColor({ 0, 1, 0 }) -- green
+                onPosition = true
+            else
+                changeColor({ 1, 0, 0 }) -- red
+            end
+        elseif navSystem == 0 then
+            ap.push(Ev.MISSION_CHECK_START_POS)
         end
         selfState = state.idle
     end
@@ -181,10 +185,8 @@ local function rcHandler()
         snake()
     elseif SWA == 1 and navSystem == 0 then
         getGNSSState()
-
     elseif SWD == 0 then
         checkOriginPosition()
-
     elseif selfState == state.idle then
         changeColor({ 0, 0, 0 }) -- no color
 
@@ -194,6 +196,8 @@ end
 local function init()
     if navSystem == 0 then
         -- GPS
+        local x, y, z = NandLua.readPosition(0)
+        ap.setFirstPoint(x, y, z)
         GNSSReady = false
     elseif navSystem == 1 then
         -- LPS
@@ -218,6 +222,12 @@ function callback(event)
         idPoint = 0
         changeColor({ 0, 0, 0 })
         isMotorStarted = false
+    elseif event == Ev.MISSION_START_POS_CORRECT then
+        onPosition = true
+        changeColor({ 0, 1, 0 }) -- green
+    elseif event == Ev.MISSION_START_POS_WRONG then
+        onPosition = false
+        changeColor({ 1, 0, 0 }) -- red
     end
 
 end
