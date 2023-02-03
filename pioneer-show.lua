@@ -24,6 +24,7 @@ local isMotorStarted = false
 local navSystem = getNavSystem()
 local selfState = state.idle
 local syncTime = 0
+local loopStartTime = 15
 local dist_check_position = 0.5
 
 local function changeColor(col)
@@ -185,8 +186,8 @@ local function rcHandler()
 
         end)
 
-        Timer.callAtGlobal(syncTime + 15 - 0.16, function()
-            positionLoop(syncTime + 15 - 0.16)
+        Timer.callAtGlobal(syncTime + loopStartTime - 0.16, function()
+            positionLoop(syncTime + loopStartTime - 0.16)
         end)
     elseif SWD == 0 and SWC == 2 then
         snake()
@@ -209,6 +210,7 @@ local function init()
     elseif navSystem == 1 then
         -- LPS
         GNSSReady = true
+        loopStartTime = 5
     end
 end
 
@@ -240,7 +242,7 @@ function callback(event)
 end
 
 init()
-timerRC = Timer.new(0.25, function()
+timerRC = Timer.new(0.2, function()
     rcHandler()
 end)
 timerRC:start()
