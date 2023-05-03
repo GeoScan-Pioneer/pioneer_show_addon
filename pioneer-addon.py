@@ -37,10 +37,12 @@ def connection_state_handler(status, value=None):
 
 
 def auto_connection_set_callback(self, context):
-    if context.scene.auto_connection:
-        loader = classes_loader[0].loader
-        loader.enable_auto_connect()
-
+    loader = classes_loader[0].loader
+    if loader:
+        if context.scene.auto_connection:
+            loader.enable_auto_connect()
+        else:
+            loader.disable_auto_connect()
 
 def items_ports_callback(scene, context):
     loader = classes_loader[0].loader
@@ -131,6 +133,7 @@ LANGUAGE_PACK_ENGLISH = {
     "DisconnectPioneer": "Disconnect Pioneer",
     "UploadNavSystemParams": "Upload params",
     "UploadFilesToPioneer": "Upload files",
+    "UploadAll": "Upload params & bin",
     "auto_connection": "Auto port connection",
     "no_pioneer_connected": "No Pioneer connected",
     "pioneer_fw_version": "Pioneer firmware version: ",
@@ -174,6 +177,7 @@ LANGUAGE_PACK_RUSSIAN = {
     "DisconnectPioneer": "Отключить Пионер",
     "UploadNavSystemParams": "Загрузить параметры",
     "UploadFilesToPioneer": "Загрузить файлы",
+    "UploadAll": "Загрузить параметры и шоу",
     "auto_connection": "Автоматическое подключение",
     "no_pioneer_connected": "Пионер не подключен",
     "pioneer_fw_version": "Версия прошивки Пионера: ",
@@ -681,6 +685,220 @@ class UploadFilesToPioneer(Operator):
         except ValueError:
             return False
 
+
+class UploadAllToPioneer(Operator):
+    bl_idname = "show.upload_to_pionner"
+    bl_label = "Загрузить файлы на пионер"
+    loader = None
+
+    def execute(self, context):
+        scene = context.scene
+        if self.loader:
+            if self.loader.connected:
+                if self.loader.get_ap_firmware_version() < self.loader.actual_ap_fw_version:
+                    self.report({"ERROR"},
+                                (LANGUAGE_PACK.get(scene.language)).get("fw_version_unmatched_error").format(
+                                    self.loader.actual_ap_fw_version, self.loader.get_ap_firmware_version()))
+                    scene.upload_allowed = False
+                    return {"FINISHED"}
+                try:
+                    if context.scene.position_system:
+                        self.loader.upload_gps_params()
+                    else:
+                        self.loader.upload_lps_params()
+                    scene.upload_allowed = True
+                    self.report({"INFO"},
+                                (LANGUAGE_PACK.get(scene.language)).get("params_uploaded_successfully"))
+                except Exception as e:
+                    self.report({"ERROR"},
+                                (LANGUAGE_PACK.get(scene.language)).get("params_loading_error") % str(e))
+                    scene.upload_allowed = False
+
+            if scene.upload_allowed:
+                if scene.position_system:
+                    if not (self.is_float(scene.lat_offset) and self.is_float(scene.lon_offset)):
+                        self.report({"ERROR"}, (LANGUAGE_PACK.get(context.scene.language)).get("latlon_not_float"))
+                        return {"CANCELLED"}
+                objects = context.visible_objects
+                pioneers = []
+                if scene.using_name_filter:
+                    for pioneers_obj in objects:
+                        if scene.drones_name.lower() in pioneers_obj.name.lower():
+                            pioneers.append(pioneers_obj)
+                else:
+                    pioneers = objects
+                if scene.board_number == len(pioneers) + 1:
+                    self.report({"ERROR"}, (LANGUAGE_PACK.get(context.scene.language)).get(
+                        "binaries_drone_number_error") % scene.board_number)
+                    return {"CANCELLED"}
+                pioneer = pioneers[scene.board_number - 1]
+                coords_array, colors_array, faults = self.prepare_export_arrays(pioneer, scene)
+                if not faults:
+                    if scene.position_system:
+                        binary = self.write_to_bin(coords_array, colors_array,
+                                                   [float(scene.lat_offset), float(scene.lon_offset)])
+                    else:
+                        binary = self.write_to_bin(coords_array, colors_array,
+                                                   [scene.x_offset, scene.y_offset])
+                else:
+                    return {"CANCELLED"}
+                try:
+                    self.loader.upload_lua_script(bpy.utils.user_resource('SCRIPTS') + "/addons/" + "pioneer-show.out")
+                    self.loader.set_board_number(scene.board_number - 1)
+                    self.loader.upload_bin(binary)
+                    self.loader.restart_board()
+                    self.report({"INFO"}, (LANGUAGE_PACK.get(context.scene.language)).get(
+                        "binaries_uploaded_successfully") % scene.board_number)
+                    scene.board_number += 1
+                except Exception as e:
+                    self.report({"ERROR"},
+                                (LANGUAGE_PACK.get(context.scene.language)).get("binaries_loading_error") % str(e))
+                    return {"CANCELLED"}
+        return {"FINISHED"}
+
+    def prepare_export_arrays(self, pioneer, scene):
+        coords_array = list()
+        colors_array = list()
+        faults = False
+        for frame in range(scene.frame_start, scene.frame_end + 1):
+            scene.frame_set(frame)
+            if frame % int(scene.render.fps / scene.positionFreq) == 0:
+                x, y, z = pioneer.matrix_world.to_translation()
+                coords_array.append((x + scene.x_offset * (not scene.position_system),
+                                     y + scene.y_offset * (not scene.position_system), z + scene.z_offset * (
+                                         not scene.position_system)))
+            if frame % int(scene.render.fps / scene.colorFreq) == 0:
+                r, g, b, _ = pioneer.active_material.diffuse_color
+                if r is None:
+                    faults = True
+                    self.report({"ERROR"}, (LANGUAGE_PACK.get(scene.language)).get("missed_color_error")
+                                % (pioneer.name, frame))
+                colors_array.append((r, g, b))
+        return coords_array, colors_array, faults
+
+    @staticmethod
+    def write_to_bin(coords_array, colors_array, origin):
+        HeaderFormat = '<BLBBBBBBBBHHfffff'
+        size = struct.calcsize(HeaderFormat)
+        meta_data = {
+            # if -1 == should be calculated
+            "Version": 2,
+            "AnimationId": 1,
+            "PreFlightColor": 249,
+            "UserColorRed": 0,
+            "UserColorGreen": 0,
+            "UserColorBlue": 0,
+            "FreqPositions": bpy.context.scene.positionFreq,
+            "FreqColors": bpy.context.scene.colorFreq,
+            "FormatPositions": struct.calcsize('f'),
+            "FormatColors": struct.calcsize('B'),
+            "NumberPositions": len(coords_array),
+            "NumberColors": len(colors_array),
+            "TimeStart": 0,
+            "TimeEnd": round(len(coords_array) / bpy.context.scene.positionFreq, 2),
+            "LatOrigin": origin[0],
+            "LonOrigin": origin[1],
+            "AltOrigin": 0,  # not used == 0
+        }
+        coords_size = len(coords_array)
+        binary = b''
+        binary += b'\xaa\xbb\xcc\xdd'
+        binary += (struct.pack(HeaderFormat, meta_data['Version'],
+                               meta_data['AnimationId'],
+                               meta_data['PreFlightColor'],
+                               meta_data['UserColorRed'],
+                               meta_data['UserColorGreen'],
+                               meta_data['UserColorBlue'],
+                               meta_data['FreqPositions'],
+                               meta_data['FreqColors'],
+                               meta_data['FormatPositions'],
+                               meta_data['FormatColors'],
+                               meta_data['NumberPositions'],
+                               meta_data['NumberColors'],
+                               meta_data['TimeStart'],
+                               meta_data['TimeEnd'],
+                               meta_data['LatOrigin'],
+                               meta_data['LonOrigin'],
+                               meta_data['AltOrigin']))
+        # Points data starts at offset of 100 bytes
+        for i in range(size + 4, 100):
+            binary += b'\x00'
+        # Write points
+        for point in coords_array:
+            binary += struct.pack('<fff', point[0], point[1], point[2])
+
+        # Colors data starts at offset of 43300 bytes
+        if coords_size < 3600:
+            for _ in range(coords_size, 3600):
+                binary += b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+        # Write colors
+        for color in colors_array:
+            binary += struct.pack('<BBB', int(color[0] * 255), int(color[1] * 255), int(color[2] * 255))
+
+        return binary
+
+    @staticmethod
+    def write_to_bin_old(coords_array, colors_array, origin):
+        headerFormat = "<BBBBBBHHfffff"
+        size = struct.calcsize(headerFormat)
+        meta_data = {
+            # if -1 == should be calculated
+            "Version": 1,
+            "AnimationId": 0,
+            "FreqPositions": bpy.context.scene.positionFreq,
+            "FreqColors": bpy.context.scene.colorFreq,
+            "FormatPositions": struct.calcsize('f'),
+            "FormatColors": struct.calcsize('B'),
+            "NumberPositions": len(coords_array),
+            "NumberColors": len(colors_array),
+            "TimeStart": 0,
+            "TimeEnd": round(len(coords_array) / bpy.context.scene.positionFreq, 2),
+            "LatOrigin": origin[0],
+            "LonOrigin": origin[1],
+            "AltOrigin": 0,  # not used == 0
+        }
+        coords_size = len(coords_array)
+        binary = b''
+        binary += b'\xaa\xbb\xcc\xdd'
+        binary += struct.pack(headerFormat, meta_data['Version'],
+                              meta_data['AnimationId'],
+                              meta_data['FreqPositions'],
+                              meta_data['FreqColors'],
+                              meta_data['FormatPositions'],
+                              meta_data['FormatColors'],
+                              meta_data['NumberPositions'],
+                              meta_data['NumberColors'],
+                              meta_data['TimeStart'],
+                              meta_data['TimeEnd'],
+                              meta_data['LatOrigin'],
+                              meta_data['LonOrigin'],
+                              meta_data['AltOrigin'])
+        # Points data starts at offset of 100 bytes
+        for i in range(size + 4, 100):
+            binary += b'\x00'
+        # Write points
+        for point in coords_array:
+            binary += struct.pack('<fff', point[0], point[1], point[2])
+
+        # Colors data starts at offset of 21700 bytes
+        if coords_size < 1800:
+            for _ in range(coords_size, 1800):
+                binary += b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+        # Write colors
+        for color in colors_array:
+            binary += struct.pack('<BBB', int(color[0] * 255), int(color[1] * 255), int(color[2] * 255))
+
+        return binary
+
+    @staticmethod
+    def is_float(num):
+        try:
+            float(num)
+            return True
+        except ValueError:
+            return False
+
+
 class ConfigurePanel(Panel):
     bl_idname = 'VIEW3D_PT_geoscan_config_panel'
     bl_label = 'GeoScan show'
@@ -785,18 +1003,26 @@ class ConnectionPanel(Panel):
                      text=(LANGUAGE_PACK.get(context.scene.language)).get("DisconnectPioneer"))
 
         row = col.row()
-        _upload_params = row.row()
-        _upload_params.enabled = False
+        # _upload_params = row.row()
+        # _upload_params.enabled = False
+        # if self.loader:
+        #     if self.loader.connected:
+        #         _upload_params.enabled = True
+        # _upload_params.operator(UploadNavSystemParams.bl_idname,
+        #                         text=(LANGUAGE_PACK.get(context.scene.language)).get("UploadNavSystemParams"))
+
+        # _upload_binaries = row.row()
+        # _upload_binaries.enabled = scene.upload_allowed and scene.export_allowed
+        # _upload_binaries.operator(UploadFilesToPioneer.bl_idname,
+        #                           text=(LANGUAGE_PACK.get(context.scene.language)).get("UploadFilesToPioneer"))
+
+        _upload_all = row.row()
+        _upload_all.enabled = False
         if self.loader:
             if self.loader.connected:
-                _upload_params.enabled = True
-        _upload_params.operator(UploadNavSystemParams.bl_idname,
-                                text=(LANGUAGE_PACK.get(context.scene.language)).get("UploadNavSystemParams"))
-
-        _upload_binaries = row.row()
-        _upload_binaries.enabled = scene.upload_allowed and scene.export_allowed
-        _upload_binaries.operator(UploadFilesToPioneer.bl_idname,
-                                  text=(LANGUAGE_PACK.get(context.scene.language)).get("UploadFilesToPioneer"))
+                _upload_all.enabled = True
+        _upload_all.operator(UploadAllToPioneer.bl_idname,
+                             text=(LANGUAGE_PACK.get(context.scene.language)).get("UploadAll"))
 
 
 class ChangeLanguage(Operator):
@@ -935,8 +1161,9 @@ classes.append(ChangeLanguage)
 classes_loader = list()
 classes_loader.append(ConnectPioneer)
 classes_loader.append(DisconnectPioneer)
-classes_loader.append(UploadNavSystemParams)
-classes_loader.append(UploadFilesToPioneer)
+# classes_loader.append(UploadNavSystemParams)
+# classes_loader.append(UploadFilesToPioneer)
+classes_loader.append(UploadAllToPioneer)
 classes_loader.append(ConnectionPanel)
 
 
