@@ -26,7 +26,7 @@ else:
 import serial
 import proto
 
-json_url = "https://docs.geoscan.aero/ru/beta-1/_downloads/e095007f59309ec01db50632ee4852b5/config.json"
+json_url = "https://storage.yandexcloud.net/pioneer.geoscan.aero/other/config.json"
 
 
 class SerialMaster:
@@ -112,6 +112,7 @@ class SerialMaster:
                                     print("disconnected port {}".format(_cached_ports[i]))
                                     self.close_serial()
                                     self.disconnect_callback()
+                                    self.serial = None
                         if self.auto_connect and len(self.ports):
                             self.serial = self.ports[0]
                             if connection_thread and connection_thread.is_alive():
@@ -137,6 +138,9 @@ class SerialMaster:
             if connection_thread and connection_thread.is_alive():
                 if not self.auto_connect:
                     connection_thread.kill()
+
+            if self.ports and self.auto_connect and not self.connected and not connection_thread.is_alive():
+                connection_thread = self.__create_thread(self.__auto_connect)
             time.sleep(0.25)
 
     def __create_thread(self, target, args=None, join: bool = False):
@@ -155,7 +159,6 @@ class SerialMaster:
         print("run manual connect")
         time.sleep(0.5)
         self.auto_connect = False
-
         if serial != self.serial:
             self.close_serial()
             self.serial = serial
@@ -214,6 +217,7 @@ class SerialMaster:
             self.stream.__del__()
         except Exception:
             pass
+        print(self.connected, self.serial, "close serial serialMaster")
 
     def available_ports(self):
         """ Lists serial port names
@@ -323,7 +327,9 @@ class Loader:
             self._user_connection_callback(self.connected)
 
     def disconnect(self):
+        print("loader disconnect")
         self.serial_master.close_serial()
+        self.serial_master.serial = None
 
     @staticmethod
     def ports_update_callback():

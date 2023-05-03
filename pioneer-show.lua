@@ -1,7 +1,7 @@
 local unpack = table.unpack
-local ledNumber = 20
+local ledNumber = 29
 local leds = Ledbar.new(ledNumber)
-local numRows = 5
+local numRows = 4
 
 local state = {
     idle = 0,
@@ -24,7 +24,9 @@ local isMotorStarted = false
 local navSystem = getNavSystem()
 local selfState = state.idle
 local syncTime = 0
+local loopStartTime = 15
 local dist_check_position = 0.5
+local logPos = 0
 
 local function changeColor(col)
     for i = 0, ledNumber - 1, 1 do
@@ -32,10 +34,23 @@ local function changeColor(col)
     end
 end
 
+local function logMessage(str)
+    local curTime = string.format("%.6f ", time())
+    local curTimeLen = string.len(curTime)
+    LuaLog.write(logPos, curTime, curTimeLen)
+    logPos = logPos + curTimeLen
+    local strLen = string.len(str)
+    LuaLog.write(logPos, str .. "\n", strLen + 1)
+    logPos = logPos + strLen + 1
+    LuaLog.sync()
+end
+
 local function getNearestTime(sec)
     if navSystem == 0 then
         return 18 + sec * (math.floor((time() + deltaTime() - 18) / sec) + 1)
     elseif navSystem == 1 then
+        local dt = deltaTime()
+        logMessage(string.format("deltaTime = %.6f", dt))
         return sec * (math.floor((time() + deltaTime()) / sec) + 1)
     end
 end
@@ -62,42 +77,6 @@ local function snake()
             selfState = state.idle
             changeColor({ 0, 0, 0 })
         end)
-    end
-end
-
-local function getGNSSState()
-    if selfState == state.idle then
-        selfState = state.inCheck
-        local gnssStatus, gnssRtk, satTotal = Sensors.gnssInfo()
-        if satTotal == 0 then
-            changeColor({ 1, 0, 0 }) -- red
-        elseif satTotal < 11 then
-            changeColor({ 1, 1, 0 }) -- yellow
-        elseif gnssRtk == 0 then
-            changeColor({ 1, 0, 1 }) -- purple
-            local originLat, originLon, _ = NandLua.readPositionOrigin()
-            local _, _, originAlt = Sensors.gnssPosition()
-            if originLat ~= nil and originLon ~= nil and originAlt ~= nil then
-                ap.setGpsOrigin(originLat, originLon, originAlt)
-            end
-        elseif gnssRtk == 1 then
-            changeColor({ 0, 0, 1 }) -- blue
-            GNSSReady = true
-            local originLat, originLon, _ = NandLua.readPositionOrigin()
-            local _, _, originAlt = Sensors.gnssPosition()
-            if originLat ~= nil and originLon ~= nil and originAlt ~= nil then
-                ap.setGpsOrigin(originLat, originLon, originAlt)
-            end
-        elseif gnssRtk == 2 then
-            changeColor({ 0, 1, 0 }) -- green
-            GNSSReady = true
-            local originLat, originLon, _ = NandLua.readPositionOrigin()
-            local _, _, originAlt = Sensors.gnssPosition()
-            if originLat ~= nil and originLon ~= nil and originAlt ~= nil then
-                ap.setGpsOrigin(originLat, originLon, originAlt)
-            end
-        end
-        selfState = state.idle
     end
 end
 
@@ -153,6 +132,7 @@ local function positionLoop(startTime)
     if selfState == state.flight and idPoint < numPositions then
         local x, y, z = NandLua.readPosition(idPoint)
         ap.goToLocalPoint(x, y, z, periodPositions)
+        logMessage(string.format("point #%d", idPoint))
         idPoint = idPoint + 1
         Timer.callAtGlobal(startTime + pointTime, function()
             positionLoop(startTime)
@@ -171,27 +151,30 @@ local function rcHandler()
     _, _, _, _, SWC, SWD, SWB, SWA = Sensors.rc()
     if SWB == 2 and onPosition and GNSSReady and selfState == state.idle then
         syncTime = getNearestTime(15)
+        logMessage(string.format("syncTime = %.6f", syncTime))
         selfState = state.start
 
         Timer.callAtGlobal(syncTime + 1, function()
             ap.push(Ev.MCE_PREFLIGHT)
+            logMessage("MCE_PREFLIGHT pushed")
         end)
 
         Timer.callAtGlobal(syncTime + 3, function()
             if selfState == state.start and isMotorStarted then
                 selfState = state.takeoff
                 ap.push(Ev.MCE_TAKEOFF)
+                logMessage("MCE_TAKEOFF pushed")
             end
 
         end)
 
-        Timer.callAtGlobal(syncTime + 15 - 0.16, function()
-            positionLoop(syncTime + 15 - 0.16)
+        Timer.callAtGlobal(syncTime + loopStartTime - 0.16, function()
+            positionLoop(syncTime + loopStartTime - 0.16)
         end)
     elseif SWD == 0 and SWC == 2 then
         snake()
-    elseif SWA == 1 and navSystem == 0 then
-        getGNSSState()
+    --elseif SWA == 1 and navSystem == 0 then
+        --getGNSSState()
     elseif SWD == 0 then
         checkOriginPosition()
     elseif selfState == state.idle then
@@ -209,30 +192,41 @@ local function init()
     elseif navSystem == 1 then
         -- LPS
         GNSSReady = true
+        loopStartTime = 7
     end
+    log.enable(true)
+    LuaLog.clear()
+    logMessage("Init is completed")
 end
 
 function callback(event)
     if event == Ev.LOW_VOLTAGE2 then
+        logMessage("LOW_VOLTAGE2 event")
         emergency()
         landing()
 
     elseif event == Ev.ENGINES_STARTED and selfState == state.start then
         isMotorStarted = true
+        logMessage("ENGINES_STARTED event")
 
     elseif event == Ev.TAKEOFF_COMPLETE and selfState == state.takeoff then
         selfState = state.flight
+        logMessage("TAKEOFF_COMPLETE event")
 
     elseif event == Ev.COPTER_LANDED and selfState == state.landing then
+        logMessage("COPTER_LANDED event")
         onPosition = false
         selfState = state.idle
         idPoint = 0
         changeColor({ 0, 0, 0 })
         isMotorStarted = false
+        log.enable(false)
     elseif event == Ev.MISSION_START_POS_CORRECT then
+        logMessage("MISSION_START_POS_CORRECT event")
         onPosition = true
         changeColor({ 0, 1, 0 }) -- green
     elseif event == Ev.MISSION_START_POS_WRONG then
+        logMessage("MISSION_START_POS_WRONG event")
         onPosition = false
         changeColor({ 1, 0, 0 }) -- red
     end
@@ -240,7 +234,7 @@ function callback(event)
 end
 
 init()
-timerRC = Timer.new(0.25, function()
+timerRC = Timer.new(0.2, function()
     rcHandler()
 end)
 timerRC:start()
