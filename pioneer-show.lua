@@ -80,6 +80,42 @@ local function snake()
     end
 end
 
+local function getGNSSState()
+    if selfState == state.idle then
+        selfState = state.inCheck
+        local gnssStatus, gnssRtk, satTotal = Sensors.gnssInfo()
+        if satTotal == 0 then
+            changeColor({ 1, 0, 0 }) -- red
+        elseif satTotal < 11 then
+            changeColor({ 1, 1, 0 }) -- yellow
+        elseif gnssRtk == 0 then
+            changeColor({ 1, 0, 1 }) -- purple
+            local originLat, originLon, _ = NandLua.readPositionOrigin()
+            local _, _, originAlt = Sensors.gnssPosition()
+            if originLat ~= nil and originLon ~= nil and originAlt ~= nil then
+                ap.setGpsOrigin(originLat, originLon, originAlt)
+            end
+        elseif gnssRtk == 1 then
+            changeColor({ 0, 0, 1 }) -- blue
+            GNSSReady = true
+            local originLat, originLon, _ = NandLua.readPositionOrigin()
+            local _, _, originAlt = Sensors.gnssPosition()
+            if originLat ~= nil and originLon ~= nil and originAlt ~= nil then
+                ap.setGpsOrigin(originLat, originLon, originAlt)
+            end
+        elseif gnssRtk == 2 then
+            changeColor({ 0, 1, 0 }) -- green
+            GNSSReady = true
+            local originLat, originLon, _ = NandLua.readPositionOrigin()
+            local _, _, originAlt = Sensors.gnssPosition()
+            if originLat ~= nil and originLon ~= nil and originAlt ~= nil then
+                ap.setGpsOrigin(originLat, originLon, originAlt)
+            end
+        end
+        selfState = state.idle
+    end
+end
+
 local function checkOriginPosition()
     if selfState == state.idle then
         selfState = state.inCheck
@@ -173,8 +209,8 @@ local function rcHandler()
         end)
     elseif SWD == 0 and SWC == 2 then
         snake()
-    --elseif SWA == 1 and navSystem == 0 then
-        --getGNSSState()
+    elseif SWA == 1 and navSystem == 0 then
+        getGNSSState()
     elseif SWD == 0 then
         checkOriginPosition()
     elseif selfState == state.idle then
