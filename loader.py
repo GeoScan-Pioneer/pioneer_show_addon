@@ -18,9 +18,9 @@ if sys.platform.startswith('win'):
     subprocess.call([py_exec, '-m', 'pip', 'install', '--upgrade', 'pip', '-t', target])
     subprocess.call([py_exec, '-m', 'pip', 'install', '--upgrade', 'pyserial', '-t', target])
     if sys.getwindowsversion()[2] < 21000:
-        import proto_win10 as proto
+        import win.win10 as proto
     elif sys.getwindowsversion()[2] >= 21000:
-        import proto_win11 as proto
+        import win.win11 as proto
 
 else:
     py_exec = str(sys.executable)
