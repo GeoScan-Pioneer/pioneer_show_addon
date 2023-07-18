@@ -10,7 +10,11 @@ import threading
 import sys
 
 if sys.platform.startswith('win'):
-    sys.path.append(bpy.utils.user_resource('SCRIPTS') + "/addons/win/")
+    if sys.getwindowsversion()[2] < 21000:
+        sys.path.append(bpy.utils.user_resource('SCRIPTS') + "/addons/win/win10/")
+    elif sys.getwindowsversion()[2] >= 21000:
+        sys.path.append(bpy.utils.user_resource('SCRIPTS') + "/addons/win/win11/")
+
 else:
     sys.path.append(bpy.utils.user_resource('SCRIPTS') + "/addons/linux/")
 from loader import Loader

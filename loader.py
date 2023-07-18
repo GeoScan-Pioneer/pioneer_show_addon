@@ -17,19 +17,14 @@ if sys.platform.startswith('win'):
     target = os.path.join(sys.prefix, 'lib', 'site-packages')
     subprocess.call([py_exec, '-m', 'pip', 'install', '--upgrade', 'pip', '-t', target])
     subprocess.call([py_exec, '-m', 'pip', 'install', '--upgrade', 'pyserial', '-t', target])
-    if sys.getwindowsversion()[2] < 21000:
-        import win.win10 as proto
-    elif sys.getwindowsversion()[2] >= 21000:
-        import win.win11 as proto
-
 else:
     py_exec = str(sys.executable)
     modules = (subprocess.check_output([py_exec, "-m", "pip", "list"])).decode("UTF-8")
     subprocess.call([py_exec, '-m', 'pip', 'install', '--upgrade', 'pip'])
     if not ("pyserial" in modules):
         subprocess.call([py_exec, "-m", "pip", "install", "pyserial"])
-    import proto
 
+import proto
 import serial
 
 json_url = "https://storage.yandexcloud.net/pioneer.geoscan.aero/other/config.json"
